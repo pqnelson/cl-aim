@@ -1,0 +1,18 @@
+#+TITLE: README
+#+AUTHOR: Alex Nelson
+#+EMAIL: pqnelson@gmail.com
+#+LANGUAGE: en
+#+OPTIONS: H:5
+#+HTML_DOCTYPE: html5
+# Created Wednesday December  2, 2020 at  4:49PM
+
+* Introduction
+
+Theorem provers are basically several domain-specific languages coupled
+together: terms, formulas, definitions, theorems, and proofs. The claim
+I'm interested in concerns whether we can formulate these DSLs in a
+manner that is "foundations independent", in the sense that the same
+definitions, theorems, and proofs can "compile" into different
+foundations without modification.
+
+- =proof.org= discusses the DSL of proof steps

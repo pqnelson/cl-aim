@@ -1,0 +1,37 @@
+#+TITLE: Proof Steps
+#+AUTHOR: Alex Nelson
+#+EMAIL: pqnelson@gmail.com
+#+LANGUAGE: en
+#+OPTIONS: H:5
+#+HTML_DOCTYPE: html5
+# Created Wednesday December  2, 2020 at  4:50PM
+
+* Introduction
+
+The claim we're investigating is whether a declarative prover input
+language can be made "foundations independent". There's only about a
+half-dozen steps we need to consider. Mizar Mode for HOL Light suggests
+that, well, this is plausible. The big question is whether type theory
+can be coerced into a Mizar Mode.
+
+** Steps
+
+I hew close to Mizar's syntax, though some of Common Lisp's primitives
+hinder things. The proof steps are:
+
+- [X] =assume formula= (implies-intro)
+- [X] =consider var {, var} such that formula [justification]= (exists-elim)
+- [X] =take term [justification]= (exists-intro)
+- [ ] =let var {, var} [(being|be) type]= (forall-intro)
+- [X] =thus formula [justification]= (and-intro)
+- [X] =per-cases [justification]; {suppose formula; proof};= (or-elim)
+
+There are a few syntactic sugared statements:
+
+- [X] =given X st formula= = ~assume exists X st formula; take X;~
+- [X] =hence= = ~then thus~
+
+Justifications are either "simple" justifications (=by= followed by a
+list of labels, theorems, definitions, etc.) or nested subproofs. There
+is also the special "then"-prefix for simple justified steps.
+

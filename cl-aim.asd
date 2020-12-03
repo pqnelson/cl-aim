@@ -5,7 +5,12 @@
   :depends-on ()
   :components ((:module "src"
                 :components
-                ((:file "main"))))
+                ((:file "main")
+                 (:module "fol"
+                  :components ((:file "term")
+                               (:file "formula")
+                               (:file "proof")
+                               )))))
   :description "Experiment with declarative theorem provers."
   :in-order-to ((test-op (test-op "cl-aim/tests"))))
 

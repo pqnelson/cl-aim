@@ -1,6 +1,6 @@
 # Cl-Aim
 
-This is an experiment with declarative theorem provers. After LaTTe
+This is an experiment with declarative theorem provers. After [LaTTe](https://github.com/lattex-central/LaTTe)
 showed it could be done in Lisp, I wondered if it was possible to
 tinker around with different foundations.
 
