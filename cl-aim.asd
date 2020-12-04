@@ -5,7 +5,8 @@
   :depends-on ()
   :components ((:module "src"
                 :components
-                ((:file "main")
+                ((:file "utils")
+                 (:file "main")
                  (:module "fol"
                   :components ((:file "term")
                                (:file "formula")
