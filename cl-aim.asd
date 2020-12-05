@@ -10,7 +10,6 @@
                  (:module "fol"
                   :components ((:file "term")
                                (:file "formula")
-                               (:file "proof")
                                )))))
   :description "Experiment with declarative theorem provers."
   :in-order-to ((test-op (test-op "cl-aim/tests"))))
@@ -22,6 +21,10 @@
                "rove")
   :components ((:module "tests"
                 :components
-                ((:file "main"))))
+                ((:file "main")
+                 (:module "fol"
+                  :components
+                  ((:file "term-tests")
+                   (:file "formula-tests"))))))
   :description "Test system for cl-aim"
   :perform (test-op (op c) (symbol-call :rove :run c)))

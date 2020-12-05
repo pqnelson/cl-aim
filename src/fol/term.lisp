@@ -3,7 +3,8 @@
   (:export var-name fn fn-name fn-args
            var term
            vars
-           arity))
+           arity
+           equal?))
 (in-package #:cl-aim.fol.term)
 
 (defclass term ()
@@ -27,7 +28,7 @@
          :initarg :name)
    (args :accessor fn-args
          :initarg :args
-         :type (list term))))
+         :type (cons term))))
 
 (defun fn (f args)
   (make-instance 'fn
@@ -36,11 +37,10 @@
 
 (defmethod equal? ((lhs fn) (rhs fn))
   (and (equal? (fn-name lhs) (fn-name rhs))
-       (every equal? (fn-args lhs) (fn-args rhs))))
+       (list-equal? (fn-args lhs) (fn-args rhs))))
 
 (defmethod print-object ((object fn) stream)
   (format stream "#fn(~A ~A)" (fn-name object) (fn-args object)))
-
 
 (defgeneric arity (f))
 

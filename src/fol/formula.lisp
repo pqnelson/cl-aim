@@ -1,6 +1,9 @@
 (defpackage #:cl-aim.fol.formula
   (:use #:cl #:cl-aim.utils)
-  (:import-from #:cl-aim.fol.term vars var term fn var-name))
+  (:import-from #:cl-aim.fol.term vars var term fn var-name)
+  (:export iff implies land lor negate predicate forall exists
+           verum contradiction vars free-vars
+           equal? ->nnf))
 (in-package #:cl-aim.fol.formula)
 
 (defclass formula ()
@@ -16,6 +19,12 @@
                :initform (error "Implies must have a conclusion")
                :type formula)))
 
+(defun implies (premise conclusion)
+  (declare (type formula premise conclusion))
+  (make-instance 'implies
+                 :premise premise
+                 :conclusion conclusion))
+
 (defmethod print-object ((object implies) stream)
   (format stream "(#implies ~A ~A)" (implies-premise object)
           (implies-conclusion object)))
@@ -23,7 +32,7 @@
 (defclass l-or (formula)
   ((disjuncts :initarg :disjuncts
               :accessor l-or-disjuncts
-              :type (list formula))))
+              :type (cons formula))))
 
 (defmethod print-object ((object l-or) stream)
   (format stream "(#or ~A)" (l-or-disjuncts object)))
@@ -34,7 +43,7 @@
 (defclass l-and (formula)
   ((conjuncts :initarg :conjuncts
               :accessor l-and-conjuncts
-              :type (list formula))))
+              :type (cons formula))))
 
 (defmethod print-object ((object l-and) stream)
   (format stream "(#and ~A)" (l-and-conjuncts object)))
@@ -63,6 +72,12 @@
                :accessor iff-conclusion
                :initform (error "Iff must have a conclusion")
                :type formula)))
+
+(defun iff (premise conclusion)
+  (declare (type formula premise conclusion))
+  (make-instance 'iff
+                 :premise premise
+                 :conclusion conclusion))
 
 (defmethod print-object ((object iff) stream)
   (format stream "(#iff ~A ~A)" (iff-premise object)
@@ -97,6 +112,15 @@
   (format stream "(#forall ~A ~A)" (forall-var object)
           (forall-body object)))
 
+(defun forall (x matrix)
+  (declare (type formula matrix)
+           (type (or symbol cl-aim.fol.term:var) x))
+  (make-instance 'forall
+                 :var (if (symbolp x)
+                          (var x)
+                          x)
+                 :body matrix))
+
 (defclass exists (formula)
   ((var :initarg :var
         :accessor exists-var
@@ -109,42 +133,61 @@
   (format stream "(#exists ~A ~A)" (exists-var object)
           (exists-body object)))
 
+(defun exists (x matrix)
+  (declare (type formula matrix)
+           (type (or symbol cl-aim.fol.term:var) x))
+  (make-instance 'exists
+                 :var (if (symbolp x)
+                          (var x)
+                          x)
+                 :body matrix))
+
 (defclass predicate (formula)
   ((name :initarg :name
          :accessor predicate-name)
    (args :initarg :args
          :accessor predicate-args
-         :type (list cl-aim.fol.term:term))))
+         :type (cons cl-aim.fol.term:term))))
 
 (defmethod print-object ((object predicate) stream)
   (format stream "#pred(~A ~A)" (predicate-name object)
           (predicate-args object)))
 
-;; BUG: this doesn't work, splitting it out into multiple defmethods doesn't
-;; work either. I can't adequately do unit testing until I figure this out...
-(defmethod equal? ((lhs formula) (rhs formula))
-  (when (typep rhs (type-of lhs))
-    (typecase lhs
-      (implies (and (equal? (implies-premise lhs) (implies-premise rhs))
-                    (equal? (implies-conclusion lhs) (implies-conclusion rhs))))
-      (iff (and (equal? (iff-premise lhs) (iff-premise rhs))
-                (equal? (iff-conclusion lhs) (iff-conclusion rhs))))
-      (l-or (every equal?
-                   (l-or-disjuncts lhs)
-                   (l-or-disjuncts rhs)))
-      (l-and (every equal?
-                    (l-and-conjuncts lhs)
-                    (l-and-conjuncts rhs)))
-      (negation (equal? (negation-argument lhs) (negation-argument rhs)))
-      (forall (and (equal? (forall-var lhs) (forall-var rhs))
-                   (equal? (forall-body lhs) (forall-body rhs))))
-      (exists (and (equal? (exists-var lhs) (exists-var rhs))
-                   (equal? (exists-body lhs) (exists-body rhs))))
-      (predicate (and (equal? (predicate-name lhs) (predicate-name rhs))
-                      (every equal? (predicate-args lhs) (predicate-args rhs))))
-      (logical-constant (eq (logical-constant-name lhs)
-                            (logical-constant-name rhs)))
-      )))
+;;; equal? tests if the formulas are equal or not, it's not deep.
+(defmethod equal? ((lhs implies) (rhs implies))
+  (and (equal? (implies-premise lhs) (implies-premise rhs))
+       (equal? (implies-conclusion lhs) (implies-conclusion rhs))))
+
+(defmethod equal? ((lhs iff) (rhs iff))
+  (and (equal? (iff-premise lhs) (iff-premise rhs))
+       (equal? (iff-conclusion lhs) (iff-conclusion rhs))))
+
+(defmethod equal? ((lhs l-or) (rhs l-or))
+  (list-equal? (l-or-disjuncts lhs)
+               (l-or-disjuncts rhs)))
+
+(defmethod equal? ((lhs l-and) (rhs l-and))
+  (list-equal? (l-and-conjuncts lhs)
+               (l-and-conjuncts rhs)))
+
+(defmethod equal? ((lhs negation) (rhs negation))
+  (equal? (negation-argument lhs) (negation-argument rhs)))
+
+(defmethod equal? ((lhs forall) (rhs forall))
+  (and (equal? (forall-var lhs) (forall-var rhs))
+       (equal? (forall-body lhs) (forall-body rhs))))
+
+(defmethod equal? ((lhs exists) (rhs exists))
+  (and (equal? (exists-var lhs) (exists-var rhs))
+       (equal? (exists-body lhs) (exists-body rhs))))
+
+(defmethod equal? ((lhs predicate) (rhs predicate))
+  (and (equal? (predicate-name lhs) (predicate-name rhs))
+       (list-equal? (predicate-args lhs) (predicate-args rhs))))
+
+(defmethod equal? ((lhs logical-constant) (rhs logical-constant))
+  (eq (logical-constant-name lhs)
+      (logical-constant-name rhs)))
 
 (defun cons-distinct-vars (list new-vars)
   (reduce (lambda (coll x)
@@ -309,91 +352,3 @@
   (declare (type formula fm))
   (nnf fm))
 
-(defun nnf-ex0 ()
-  (labels ((p (x) (make-instance 'predicate
-                                 :name 'P
-                                 :args (list (var x)))))
-    (->nnf
-     (negate (make-instance 'exists
-                            :var (var 'x)
-                            :body (p 'x))))))
-
-
-(defun nnf-ex2 ()
-  (labels ((p (x) (make-instance 'predicate
-                                 :name 'P
-                                 :args (list (var x)))))
-    (->nnf
-     (negate (make-instance 'forall
-                            :var (var 'x)
-                            :body (p 'x))))))
-
-(defun nnf-ex1 ()
-  (labels ((p (x) (make-instance 'predicate
-                                 :name 'P
-                                 :args (list (var x))))
-           (q (x) (make-instance 'predicate
-                                 :name 'Q
-                                 :args (list (var x)))))
-    (->nnf
-     (make-instance
-      'implies
-      :premise (make-instance 'forall
-                              :var (var 'x)
-                              :body (p 'x))
-      :conclusion (make-instance 'forall
-                                 :var (var 'y)
-                                 :body (q 'y))))))
-
-;; (defun nnf-ex2 ()
-;;   (labels ((p (x) (make-instance 'predicate
-;;                                  :name 'P
-;;                                  :args (list (var x))))
-;;            (q (x) (make-instance 'predicate
-;;                                  :name 'Q
-;;                                  :args (list (var x)))))
-;;     (->nnf
-;;      (make-instance
-;;       'implies
-;;       :premise (make-instance 'exists
-;;                               :var (var 'x)
-;;                               :body (p 'x))
-;;       :conclusion (make-instance 'iff
-;;                                  :premise (make-instance
-;;                                            'exists
-;;                                            :var (var 'y)
-;;                                            :body (q 'y))
-;;                                  :conclusion (make-instance
-;;                                               'exists
-;;                                               :var (var 'z)
-;;                                               :body (land
-;;                                                      (p 'z)
-;;                                                      (q 'z))))
-;;       :conclusion (make-instance 'forall
-;;                                  :var (var 'y)
-;;                                  :body (q 'y))))))
-
-(defun nnf-example ()
-  (labels ((p (x) (make-instance 'predicate
-                                 :name 'P
-                                 :args (list (var x))))
-           (q (x) (make-instance 'predicate
-                                 :name 'Q
-                                 :args (list (var x)))))
-    (->nnf
-     (make-instance 'implies
-                    :premise (make-instance 'forall
-                                            :var (var 'x)
-                                            :body (p 'x))
-                    :conclusion (make-instance 'iff
-                                               :premise (make-instance
-                                                         'exists
-                                                         :var (var 'y)
-                                                         :body (q 'y))
-                                               :conclusion (make-instance
-                                                            'exists
-                                                            :var (var 'z)
-                                                            :body (land
-                                                                   (p 'z)
-                                                                   (q 'z)))))))
-  )
