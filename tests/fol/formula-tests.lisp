@@ -51,7 +51,7 @@
     )
   (deftest print-forall-test
     (ok (test-for (forall 'x (p 'x))
-              "(#forall X #pred(:P X))"))
+                  "(#forall X #pred(:P X))"))
     (ok (test-for (forall 'y (q 'y))
                   "(#forall Y #pred(:Q Y))"))
     ))
@@ -98,3 +98,21 @@
                                 (exists 'z (land (p 'z)
                                                  (q 'z))))))))
     ))
+
+(deftest pull-quantifiers-test
+  (labels ((p (x)
+             (make-instance 'predicate :name 'p
+                                       :args (list (var x))))
+           (q (x)
+             (make-instance 'predicate :name 'q
+                                       :args (list (var x))))
+           (r (x)
+             (make-instance 'predicate :name 'r
+                                       :args (list (var x))))
+           )
+    (ok (equal? (pull-quantifiers (lor (forall 'x (p 'x))
+                                       (q 'y)
+                                       (exists 'x (r 'x))))
+                (forall 'x (exists 'x (lor (p 'x)
+                                           (q 'y)
+                                           (r 'x))))))))

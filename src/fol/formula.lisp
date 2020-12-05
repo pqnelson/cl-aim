@@ -1,9 +1,10 @@
 (defpackage #:cl-aim.fol.formula
   (:use #:cl #:cl-aim.utils)
-  (:import-from #:cl-aim.fol.term vars var term fn var-name)
+  (:import-from #:cl-aim.fol.term vars var term fn var-name term-subst)
   (:export iff implies land lor negate predicate forall exists
            verum contradiction vars free-vars
-           equal? ->nnf))
+           equal? ->nnf term-subst
+           pull-quantifiers))
 (in-package #:cl-aim.fol.formula)
 
 (defclass formula ()
@@ -96,9 +97,15 @@
   (defconstant verum (make-instance 'logical-constant :name 'verum)
     "Represents logical truth constant."))
 
+(defun verum? (x)
+  (eq x verum))
+
 (unless (boundp 'contradiction)
   (defconstant contradiction (make-instance 'logical-constant :name 'contradiction)
     "The 'false' constant."))
+
+(defun contradiction? (x)
+  (eq contradiction x))
 
 (defclass forall (formula)
   ((var :initarg :var
@@ -147,7 +154,8 @@
          :accessor predicate-name)
    (args :initarg :args
          :accessor predicate-args
-         :type (cons cl-aim.fol.term:term))))
+         :initform nil
+         :type (or nil (cons cl-aim.fol.term:term)))))
 
 (defmethod print-object ((object predicate) stream)
   (format stream "#pred(~A ~A)" (predicate-name object)
@@ -216,6 +224,7 @@
     (t nil)))
 
 (defun free-vars (fm)
+  "Returns the list of `VAR' objects which are not bound in FM."
   (declare (type formula fm))
   (typecase fm
     (implies (cons-distinct-vars (free-vars (implies-premise fm))
@@ -241,7 +250,7 @@
   "Given a formula FM, universally quantify all free variables appearing in it."
   (declare (type formula fm))
   (reduce (lambda (form var)
-            (make-instance 'forall :var var :body form))
+            (forall var form))
           (free-vars fm)
           :initial-value fm))
 
@@ -351,4 +360,304 @@
 (defun ->nnf (fm)
   (declare (type formula fm))
   (nnf fm))
+
+(defun nnf? (fm)
+  (declare (type formula fm))
+  (typecase fm
+    (l-and (every #'nnf? (l-and-conjuncts fm)))
+    (l-or (every #'nnf? (l-or-disjuncts fm)))
+    (exists (nnf? (exists-body fm)))
+    (forall (nnf? (forall-body fm)))
+    (negation (typep (negation-argument fm) 'predicate))
+    (predicate t)
+    (logical-constant t)))
+
+;;; Prenex normal form.
+;;;
+;;; We pull out the quantifiers to make the formula look like:
+;;; (quantifiers matrix) where there is no quantifier appearing in
+;;; the subformula `matrix'.
+;;;
+;;; This requires substituting in a fresh variable to avoid accidental
+;;; collisions.
+
+;; Subst will replace all terms appearing in a formula according to the
+;; provided REPLACEMENT-ALIST.
+(defmethod term-subst ((self implies) replacement-alist &key (test #'equal?))
+  (implies (term-subst (implies-premise self) replacement-alist :test test)
+           (term-subst (implies-conclusion self) replacement-alist :test test)))
+
+(defmethod term-subst ((self iff) replacement-alist &key (test #'equal?))
+  (iff (term-subst (iff-premise self) replacement-alist :test test)
+       (term-subst (iff-conclusion self) replacement-alist :test test)))
+
+(defmethod term-subst ((self l-or) replacement-alist &key (test #'equal?))
+  (make-instance
+   'l-or
+   :disjuncts (mapcar (lambda (clause)
+                        (term-subst clause replacement-alist :test test))
+                      (l-or-disjuncts self))))
+
+(defmethod term-subst ((self l-and) replacement-alist &key (test #'equal?))
+  (make-instance
+   'l-and
+   :conjuncts (mapcar (lambda (clause)
+                        (term-subst clause replacement-alist :test test))
+                      (l-and-conjuncts self))))
+
+(defmethod term-subst ((self negation) replacement-alist &key (test #'equal?))
+  (negate (term-subst (negation-argument self) replacement-alist :test test)))
+
+(defmethod term-subst ((self predicate) replacement-alist &key (test #'equal?))
+  (make-instance 'predicate
+                 :name (predicate-name self)
+                 :args (mapcar (lambda (tm)
+                                 (term-subst tm replacement-alist :test test))
+                               (predicate-args self))))
+
+(defmethod term-subst ((self exists) replacement-alist &key (test #'equal?))
+  (exists (term-subst (exists-var self) replacement-alist :test test)
+          (term-subst (exists-body self) replacement-alist :test test)))
+
+(defmethod term-subst ((self forall) replacement-alist &key (test #'equal?))
+  (forall (term-subst (forall-var self) replacement-alist :test test)
+          (term-subst (forall-body self) replacement-alist :test test)))
+
+(defmethod term-subst ((self logical-constant) alist &key (test #'equal?))
+  self)
+
+(defmethod term-subst (self alist &key (test #'equal?))
+  (format t "~% WTF term-subst found SELF = ~A" self)
+  (format t "~%               typeof self = ~A" (type-of self))
+  (format t "~%                     alist = ~A" alist))
+
+;; Simplification by tautologies, removing un-used quantifiers, etc.
+(defun prop-simplify (formula)
+  (declare (type formula formula))
+  (typecase formula
+    (negation (cond
+                ((verum? (negation-argument formula)) contradiction)
+                ((contradiction? (negation-argument formula)) verum)
+                ((typep (negation-argument formula)
+                        'negation)
+                 (negation-argument (negation-argument formula)))
+                (t formula)))
+    (l-and (cond
+             ((some #'contradiction? (l-and-conjuncts formula))
+              contradiction)
+             (t (let ((results (remove-if #'verum?
+                                          (l-and-conjuncts formula))))
+                  (cond
+                    ((null results) verum)
+                    ((singleton? results) (car results))
+                    (t (make-instance 'l-and
+                                      :conjuncts results))
+                    )))))
+    (l-or (cond
+            ((some #'verum? (l-or-disjuncts formula))
+             verum)
+            (t (let ((results (remove-if #'contradiction?
+                                         (l-or-disjuncts formula))))
+                 (cond
+                   ((null results) contradiction)
+                   ((singleton? results)
+                    (car results))
+                   (t (make-instance 'l-or
+                                     :disjuncts results)))))))
+    (implies (cond
+               ((contradiction? (implies-premise formula)) verum)
+               ((verum? (implies-premise formula)) (implies-conclusion formula))
+               ((verum? (implies-conclusion formula)) verum)
+               ((contradiction? (implies-conclusion formula))
+                (negate (implies-conclusion formula)))
+               (t formula)))
+    (iff (cond
+           ((verum? (iff-conclusion formula))
+                       (iff-premise formula))
+           ((verum? (iff-premise formula))
+            (iff-conclusion formula))
+           ((contradiction? (iff-premise formula))
+            (negate (iff-conclusion formula)))
+           ((contradiction? (iff-conclusion formula))
+            (negate (iff-premise formula)))
+           (t formula)
+           ))
+    (t formula)))
+
+(defun remove-unused-quantifier (formula)
+  (declare (type formula formula))
+  (typecase formula
+    (forall (if (member (forall-var formula)
+                        (free-vars (forall-body formula))
+                        :test #'equal?)
+                formula
+                (forall-body formula)))
+    (exists (if (member (exists-var formula)
+                        (free-vars (exists-body formula))
+                        :test #'equal?)
+                formula
+                (exists-body formula)))
+    (t (prop-simplify formula))))
+
+(defun simplify (fm)
+  (declare (type formula fm))
+  (typecase fm
+    (negation (remove-unused-quantifier (negate (simplify (negation-argument fm)))))
+    (l-and (remove-unused-quantifier
+            (let ((results (mapcar #'simplify (l-and-conjuncts fm))))
+              (if (singleton? results)
+                  (car results)
+                  (make-instance 'l-and :conjuncts results)))))
+    (l-or (remove-unused-quantifier
+           (let ((results (mapcar #'simplify (l-or-disjuncts fm))))
+             (if (singleton? results)
+                 (car results)
+                 (make-instance 'l-or :disjuncts results)))))
+    (implies (remove-unused-quantifier
+              (implies (simplify (implies-premise fm))
+                       (simplify (implies-conclusion fm)))))
+    (iff (remove-unused-quantifier
+          (iff (simplify (iff-premise fm))
+               (simplify (iff-conclusion fm)))))
+    (forall (remove-unused-quantifier
+             (forall (forall-var fm)
+                     (simplify (forall-body fm)))))
+    (exists (remove-unused-quantifier
+             (exists (exists-var fm)
+                     (simplify (exists-body fm)))))
+    (t fm)
+    ))
+
+(defun simplify-example1 ()
+  (labels ((make-prop (p) (make-instance 'predicate :name p :args nil)))
+    (equal? (simplify (implies (implies verum (iff (make-prop 'x) contradiction))
+                       (negate (lor (make-prop 'y)
+                                    (land (make-prop 'z) contradiction)
+                                    ))))
+            (implies (negate (make-prop 'x))
+                     (negate (make-prop 'y))))))
+
+;; The basic strategy is to pull the quantifiers out "by one level", then
+;; have `->prenex' recursively do this until we're in prenex normal form.
+;;
+;; We have formulas be in negation normal form, so the only binary connectives
+;; are conjunction and disjunction. When any clause in a conjunction or disjunction
+;; has a quantifier, we need to pull it out.
+(defun var-variant (x)
+  (declare (type (or symbol var) x))
+  (var (gensym (symbol-name (if (typep x 'var)
+                                (var-name x)
+                                x)))))
+
+
+(defgeneric has-quantified-clause? (fm))
+
+(defmethod has-quantified-clause? (fm))
+
+(defmethod has-quantified-clause? ((fm forall))
+  t)
+
+(defmethod has-quantified-clause? ((fm exists))
+  t)
+
+(defmethod has-quantified-clause? ((fm l-or))
+  (some (lambda (clause)
+          (has-quantified-clause? clause))
+        (l-or-disjuncts fm)))
+
+(defmethod has-quantified-clause? ((fm l-and))
+  (some (lambda (clause)
+          (has-quantified-clause? clause))
+        (l-and-conjuncts fm)))
+
+(defun pull-quantifiers (fm)
+  (declare (type formula fm))
+  (assert (nnf? fm))
+  (labels ((pull-quantifiers-for-clauses (clauses connective fvars)
+             (funcall (lambda (clauses-and-quants)
+                        (funcall (cdr clauses-and-quants)
+                                 (pull-quantifiers-inner
+                                  (apply connective (car clauses-and-quants)))))
+                      (reduce (lambda (clause clauses-and-quants) 
+                                (let* ((processed-clauses (car clauses-and-quants))
+                                       (quants (cdr clauses-and-quants)))
+                                  (typecase clause
+                                    (forall (let ((fresh-var (if (member (forall-var clause) fvars :test #'equal?)
+                                                                 (var-variant (forall-var clause))
+                                                                 (forall-var clause))))
+                                              (cons (cons (term-subst (forall-body clause)
+                                                           (acons (forall-var clause)
+                                                                  fresh-var
+                                                                  nil))
+                                                          processed-clauses)
+                                                    (lambda (x)
+                                                      (forall fresh-var (funcall quants x))))))
+                                    (exists (let ((fresh-var (if (member (exists-var clause) fvars :test #'equal?)
+                                                                 (var-variant (exists-var clause))
+                                                                 (exists-var clause))))
+                                              (cons (cons (term-subst (exists-body clause)
+                                                                      (acons (exists-var clause)
+                                                                             fresh-var
+                                                                             nil))
+                                                          processed-clauses)
+                                                    (lambda (x)
+                                                      (exists fresh-var (funcall quants x))))))
+                                    (t (cons (cons clause processed-clauses) quants)))
+                                  ))
+                              clauses
+                              :initial-value '(nil . identity)
+                              :from-end t)))
+           (pull-quantifiers-inner (form)
+             (declare (type formula form))
+             (typecase form
+               ;; TODO: handle (land (forall x (p x)) (forall y (q y)))
+               ;;     => (forall z (land (p z) (q z)))
+               (l-and (if (has-quantified-clause? form)
+                          (pull-quantifiers-for-clauses (l-and-conjuncts form) #'land (free-vars form))
+                          form))
+               ;; TODO: handle (lor (exists x (p x)) (exists y (q y)))
+               ;;     => (exists z (lor (p z) (q z)))
+               (l-or (if (has-quantified-clause? form)
+                         (pull-quantifiers-for-clauses (l-or-disjuncts form) #'lor (free-vars form))
+                         form))
+               (t form)
+               )))
+    (pull-quantifiers-inner fm)
+    ))
+
+(defun nnf->prenex (fm)
+  (declare (type formula fm))
+  ;; (assert (nnf? fm))
+  (typecase fm
+    (forall (forall (forall-var fm) (nnf->prenex (forall-body fm))))
+    (exists (exists (exists-var fm) (nnf->prenex (exists-body fm))))
+    (l-and (pull-quantifiers (make-instance 'l-and
+                                            :conjuncts (mapcar #'nnf->prenex (l-and-conjuncts fm)))))
+    (l-or (pull-quantifiers (make-instance 'l-or
+                                           :disjuncts (mapcar #'nnf->prenex (l-or-disjuncts fm)))))
+    (t fm)))
+
+(defun prenex-normal-form (fm)
+  "Simplifies and transforms a formula FM, making it in prenex normal form."
+  (nnf->prenex (->nnf (simplify fm))))
+
+(defun pnf-ex1 ()
+  (labels ((p (x)
+             (make-instance 'predicate
+                            :name :P
+                            :args (list (var x))))
+           (q (x)
+             (make-instance 'predicate
+                            :name :Q
+                            :args (list (var x))))
+           (r (x)
+             (make-instance 'predicate
+                            :name :R
+                            :args (list (var x))))
+           )
+    (prenex-normal-form
+     (implies (forall 'x (lor (p 'x) (r 'y)))
+              (lor (exists 'y (exists 'z (negate (q 'y))))
+                   (negate (exists 'z (land (p 'z) (q 'z)))))
+              ))))
 

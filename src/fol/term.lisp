@@ -1,10 +1,11 @@
 (defpackage #:cl-aim.fol.term
-  (:use :cl :cl-aim.utils)
+  (:use :cl :cl-aim.utils)  
   (:export var-name fn fn-name fn-args
            var term
            vars
            arity
-           equal?))
+           equal?
+           term-subst))
 (in-package #:cl-aim.fol.term)
 
 (defclass term ()
@@ -17,8 +18,10 @@
 (defmethod equal? ((lhs var) (rhs var))
   (equal? (var-name lhs) (var-name rhs)))
 
+(defparameter *debug?* nil)
+
 (defmethod print-object ((object var) stream)
-  (format stream "~A" (var-name object)))
+  (format stream (if *debug?* "(#var ~A)" "~A") (var-name object)))
 
 (defun var (x)
   (make-instance 'var :name x))
@@ -57,3 +60,18 @@
   (when (plusp (arity self))
     (remove-duplicates (mapcan #'vars (fn-args self))
                        :key #'var-name)))
+
+(defgeneric term-subst (self replacement-alist &key test ;; (test #'equal?)
+                                               ))
+
+(defmethod term-subst ((self var) replacement-alist &key (test #'equal?))
+  (let ((replacement (assoc self replacement-alist :test test)))
+    (if replacement
+        (cdr replacement)
+        self)))
+
+(defmethod term-subst ((self fn) replacement-alist &key (test #'equal?))
+  (fn (fn-name self)
+      (mapcar (lambda (arg)
+                (subst arg replacement-alist :test test))
+              (fn-args self))))

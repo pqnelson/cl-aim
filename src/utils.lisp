@@ -1,7 +1,11 @@
 (defpackage #:cl-aim.utils
   (:use #:cl)
-  (:export equal? list-equal?))
+  (:export equal? list-equal? singleton?))
 (in-package #:cl-aim.utils)
+
+(defun singleton? (coll)
+  (and (consp coll)
+       (endp (cdr coll))))
 
 (defgeneric equal? (lhs rhs))
 
