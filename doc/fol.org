@@ -1,0 +1,41 @@
+#+TITLE: First-Order Logic
+#+AUTHOR: Alex Nelson
+#+EMAIL: pqnelson@gmail.com
+#+LANGUAGE: en
+#+OPTIONS: H:5
+#+HTML_DOCTYPE: html5
+# Created Saturday December  5, 2020 at  8:22AM
+
+* Overview
+
+The basic structure of the first-order logic prover is rather messy. I
+separate out terms from formulas. Terms are "objects", formulas are
+"propositions". We usually do the most work on formulas.
+
+* Terms
+
+In first-order logic, a term is either a variable /or/ a function
+applied to some number of terms. The number of arguments to a function
+is called its "arity". As per convention, a constant term is a function
+of arity zero.
+
+We need some way to substitute term /x/ for subterm /y/ in any given
+term (or formula). This is handled by the =term-subst= function.
+
+* Formulas
+
+The structure of the =cl-aim.fol.formula.lisp= file amounts to:
+
+1. Defining the classes and syntactic operations
+2. Converting to Normal Forms (negation normal form and prenex normal form)
+3. Skolemization and Herbrandization
+4. Some simple satisfiability methods
+
+We don't need anything fancy, just enough to get proving.
+
+** Naming
+
+I apologize for the naming conventions, but since =or=, =and=, =not=,
+etc., were taken by Common Lisp, I needed alternatives. For better or
+worse, I opted for TeX macro names for constructors
+(=land=, =lor=, =neg= became =negate=).

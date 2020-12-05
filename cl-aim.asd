@@ -3,6 +3,7 @@
   :author "Alex Nelson"
   :license "MIT License"
   :depends-on ()
+  :serial t
   :components ((:module "src"
                 :components
                 ((:file "utils")

@@ -1,10 +1,10 @@
 (defpackage #:cl-aim.fol.formula
   (:use #:cl #:cl-aim.utils)
-  (:import-from #:cl-aim.fol.term vars var term fn var-name term-subst)
+  (:import-from #:cl-aim.fol.term vars var term fn var-name term-subst functions)
   (:export iff implies land lor negate predicate forall exists
-           verum contradiction vars free-vars
+           verum contradiction vars free-vars simplify
            equal? ->nnf term-subst
-           pull-quantifiers))
+           pull-quantifiers skolemize))
 (in-package #:cl-aim.fol.formula)
 
 (defclass formula ()
@@ -38,19 +38,27 @@
 (defmethod print-object ((object l-or) stream)
   (format stream "(#or ~A)" (l-or-disjuncts object)))
 
+(defun lor? (x) (typep x 'l-or))
+
 (defun lor (&rest disjuncts)
-  (make-instance 'l-or :disjuncts disjuncts))
+  (make-instance
+   'l-or
+   :disjuncts (flatten-if #'lor? disjuncts :transform #'l-or-disjuncts)))
 
 (defclass l-and (formula)
   ((conjuncts :initarg :conjuncts
               :accessor l-and-conjuncts
               :type (cons formula))))
 
+(defun land? (x) (typep x 'l-and))
+
 (defmethod print-object ((object l-and) stream)
   (format stream "(#and ~A)" (l-and-conjuncts object)))
 
 (defun land (&rest conjuncts)
-  (make-instance 'l-and :conjuncts conjuncts))
+  (make-instance
+   'l-and
+   :conjuncts (flatten-if #'land? conjuncts :transform #'l-and-conjuncts)))
 
 (defclass negation (formula)
   ((argument :initarg :formula
@@ -256,34 +264,59 @@
 
 ;; TODO: consider how to rewrite `vars' and `free-vars' using a fold-formula
 ;; generic
-(defgeneric fold-formula (fm f)
-  (:documentation "Reduces a formula by subformulas, `f' expects (coll subformula) as its signature, producing a new list."))
+(defun reduce-over-atoms (f fm initial-value)
+  (declare (type formula fm)
+           (type function f))
+  (typecase fm
+    (predicate (funcall f fm initial-value))
+    (negation (reduce-over-atoms f (negation-body fm) initial-value))
+    (implies (reduce-over-atoms f
+                                (implies-premise fm)
+                                (reduce-over-atoms f
+                                                   (implies-conclusion fm)
+                                                   initial-value)))
+    (iff (reduce-over-atoms f
+                            (iff-premise fm)
+                            (reduce-over-atoms f
+                                               (iff-conclusion fm)
+                                               initial-value)))
+    (l-and (reduce (lambda (clause current-val)
+                     (reduce-over-atoms f clause current-val))
+                   (l-and-conjuncts fm)
+                   :initial-value initial-value))
+    (l-or (reduce (lambda (clause current-val)
+                    (reduce-over-atoms f clause current-val))
+                  (l-or-disjuncts fm)
+                  :initial-value initial-value))
+    (forall (reduce-over-atoms f (forall-body fm) initial-value))
+    (exists (reduce-over-atoms f (exists-body fm) initial-value))
+    (t initial-value)))
 
-(defmethod fold-formula ((fm implies) f)
-  (reduce f (list (implies-premise fm)
-                  (implies-conclusion fm))))
+(defun map-atoms (f fm)
+  (declare (type formula fm)
+           (type (function (formula *) *) f))
+  (typecase fm
+    (predicate (f fm))
+    (negation (negate (map-atoms f (negation-body fm))))
+    (l-and (make-instance 'l-and
+                          :conjuncts (mapcar (lambda (clause)
+                                               (map-atoms f clause))
+                                             (l-and-conjuncts fm))))
+    (l-or (make-instance 'l-or
+                          :disjuncts (mapcar (lambda (clause)
+                                               (map-atoms f clause))
+                                             (l-or-disjuncts fm))))
+    (implies (implies (map-atoms f (implies-premise fm))
+                      (map-atoms f (implies-conclusion fm))))
+    (iff (iff (map-atoms f (iff-premise fm))
+              (map-atoms f (iff-conclusion fm))))
+    (forall (forall (forall-var fm)
+                    (map-atoms f (forall-body fm))))
+    (exists (exists (exists-var fm)
+                    (map-atoms f (exists-body fm))))
+    (t fm)
+    ))
 
-(defmethod fold-formula ((fm iff) f)
-  (reduce f (list (iff-premise fm)
-                  (iff-conclusion fm))))
-
-(defmethod fold-formula ((fm l-or) f)
-  (reduce f (l-or-disjuncts fm)))
-
-(defmethod fold-formula ((fm l-and) f)
-  (reduce f (l-and-conjuncts fm)))
-
-(defmethod fold-formula ((fm negation) f)
-  (fold-formula (negation-argument fm) f))
-
-(defmethod fold-formula ((fm predicate) f)
-  (funcall f fm nil))
-
-(defmethod fold-formula ((fm exists) f)
-  (funcall f fm nil))
-
-(defmethod fold-formula ((fm forall) f)
-  (funcall f fm nil))
 
 ;;;; Normal Forms.
 ;;;;
@@ -338,12 +371,48 @@
   (typecase p
     (l-and (make-instance 'l-and
                           :conjuncts
-                          (mapcar #'nnf (l-and-conjuncts p))))
+                          (mapcan (lambda (clause)
+                                    (if (land? clause)
+                                        (l-and-conjuncts clause)
+                                        (list clause)))
+                                  (mapcar #'nnf (l-and-conjuncts p)))))
     (l-or (make-instance 'l-or
                          :disjuncts
-                         (mapcar #'nnf (l-or-disjuncts p))))
-    (implies (lor (nnf (negate (implies-premise p)))
-                  (nnf (implies-conclusion p))))
+                         (mapcan (lambda (clause)
+                                   (if (lor? clause)
+                                       (l-or-disjuncts clause)
+                                       (list clause)))
+                                 (mapcar #'nnf (l-or-disjuncts p)))))
+    (implies (let ((premise (nnf (negate (implies-premise p))))
+                   (conclusion (nnf (implies-conclusion p))))
+               (cond
+                 ((lor? premise)
+                  (cond ((lor? conclusion)
+                         (progn
+                           (setf (l-or-disjuncts premise)
+                                 (append (l-or-disjuncts premise)
+                                         (l-or-disjuncts conclusion)))
+                           premise))
+                        ((or (typep conclusion 'exists)
+                             (typep conclusion 'forall)
+                             (typep conclusion 'predicate))
+                         (progn
+                           (setf (l-or-disjuncts premise)
+                                 (append (l-or-disjuncts premise)
+                                         (list conclusion)))
+                           premise))
+                        (t (lor premise conclusion))))
+                 ((lor? conclusion)
+                  (cond ((or (typep premise 'exists)
+                             (typep premise 'forall)
+                             (typep premise 'predicate))
+                         (progn
+                           (setf (l-or-disjuncts conclusion)
+                                 (cons premise
+                                       (l-or-disjuncts conclusion)))
+                           conclusion))
+                        (t (lor premise conclusion))))
+                 (t (lor premise conclusion)))))
     (iff (lor (land (nnf (negate (iff-premise p)))
                     (nnf (negate (iff-conclusion p))))
               (land (nnf (iff-premise p))
@@ -442,6 +511,8 @@
                         'negation)
                  (negation-argument (negation-argument formula)))
                 (t formula)))
+    ;; TODO: consider "flattening" nested (#and a (#and b c) d)
+    ;;       to just (#and a b c d)
     (l-and (cond
              ((some #'contradiction? (l-and-conjuncts formula))
               contradiction)
@@ -453,6 +524,8 @@
                     (t (make-instance 'l-and
                                       :conjuncts results))
                     )))))
+    ;; TODO: consider "flattening" nested (#or a (#or b c) d)
+    ;;       to just (#or a b c d)
     (l-or (cond
             ((some #'verum? (l-or-disjuncts formula))
              verum)
@@ -528,15 +601,6 @@
     (t fm)
     ))
 
-(defun simplify-example1 ()
-  (labels ((make-prop (p) (make-instance 'predicate :name p :args nil)))
-    (equal? (simplify (implies (implies verum (iff (make-prop 'x) contradiction))
-                       (negate (lor (make-prop 'y)
-                                    (land (make-prop 'z) contradiction)
-                                    ))))
-            (implies (negate (make-prop 'x))
-                     (negate (make-prop 'y))))))
-
 ;; The basic strategy is to pull the quantifiers out "by one level", then
 ;; have `->prenex' recursively do this until we're in prenex normal form.
 ;;
@@ -548,7 +612,6 @@
   (var (gensym (symbol-name (if (typep x 'var)
                                 (var-name x)
                                 x)))))
-
 
 (defgeneric has-quantified-clause? (fm))
 
@@ -569,6 +632,53 @@
   (some (lambda (clause)
           (has-quantified-clause? clause))
         (l-and-conjuncts fm)))
+
+
+(defun pull-exists-before-lor (fm)
+  "Peels off one layer of existential quantifiers in clauses in a disjunction."
+  (declare (type (or exists l-or) fm))
+  ;; change (or (exists x1 (p1 x1)) ... (exists x-n (p-n x-n)))
+  ;; into (exists z (or (p1 z) ... (p-n z)))
+
+  ;; change (or (exists x (or (p x) (q x))) (exists y (r y)))
+  ;;   into (exists z (or (p z) (q z) (r z)))
+  fm
+  )
+
+(defun bound-vars (fm)
+  "Returns all bound variables in a formula."
+  (declare (type formula fm))
+  (typecase fm
+    (implies (concatenate 'list
+                          (bound-vars (implies-premise fm))
+                          (bound-vars (implies-conclusion fm))))
+    (iff (concatenate 'list
+                      (bound-vars (iff-premise fm))
+                      (bound-vars (iff-conclusion fm))))
+    (l-or (mapcan #'bound-vars (l-or-disjuncts fm)))
+    (l-and (mapcan #'bound-vars (l-and-conjuncts fm)))
+    (negation (bound-vars (negation-argument )))
+    (forall (let ((results (bound-vars (forall-body fm))))
+              (if (member (forall-var fm) results :test #'equal?)
+                  results
+                  (cons (exists-var fm) results))))
+    (exists (let ((results (bound-vars (exists-body fm))))
+              (if (member (exists-var fm) results :test #'equal?)
+                  results
+                  (cons (exists-var fm) results))))
+    (t nil)
+    ))
+
+(defun pull-forall-before-land (fm)
+  "Peels off one layer of universal quantifiers in clauses in a conjunction."
+  (declare (type (or forall l-and) fm))
+  ;; change (and (forall x1 (p1 x1)) ... (forall x-n (p-n x-n)))
+  ;; into (forall z (and (p1 z) ... (p-n z)))
+
+  ;; change (and (forall x (and (p x) (q x))) (forall y (r y)))
+  ;;   into (forall z (and (p z) (q z) (r z)))
+  fm
+  )
 
 (defun pull-quantifiers (fm)
   (declare (type formula fm))
@@ -610,15 +720,23 @@
            (pull-quantifiers-inner (form)
              (declare (type formula form))
              (typecase form
-               ;; TODO: handle (land (forall x (p x)) (forall y (q y)))
-               ;;     => (forall z (land (p z) (q z)))
                (l-and (if (has-quantified-clause? form)
-                          (pull-quantifiers-for-clauses (l-and-conjuncts form) #'land (free-vars form))
+                          (let ((contracted (pull-forall-before-land form)))
+                            (if (equal? contracted form)
+                                (pull-quantifiers-for-clauses (l-and-conjuncts contracted) #'land (free-vars contracted))
+                                (let ((body (forall-body contracted)))
+                                  (setf (forall-body contracted)
+                                        (pull-quantifiers-inner body))
+                                  contracted)))
                           form))
-               ;; TODO: handle (lor (exists x (p x)) (exists y (q y)))
-               ;;     => (exists z (lor (p z) (q z)))
                (l-or (if (has-quantified-clause? form)
-                         (pull-quantifiers-for-clauses (l-or-disjuncts form) #'lor (free-vars form))
+                         (let ((contracted (pull-exists-before-lor form)))
+                           (if (equal? contracted form)
+                               (pull-quantifiers-for-clauses (l-or-disjuncts contracted) #'lor (free-vars contracted))
+                               (let ((body (exists-body contracted)))
+                                 (setf (exists-body contracted)
+                                       (pull-quantifiers-inner body))
+                                 contracted)))
                          form))
                (t form)
                )))
@@ -627,7 +745,7 @@
 
 (defun nnf->prenex (fm)
   (declare (type formula fm))
-  ;; (assert (nnf? fm))
+  (assert (nnf? fm))
   (typecase fm
     (forall (forall (forall-var fm) (nnf->prenex (forall-body fm))))
     (exists (exists (exists-var fm) (nnf->prenex (exists-body fm))))
@@ -655,9 +773,110 @@
                             :name :R
                             :args (list (var x))))
            )
-    (prenex-normal-form
-     (implies (forall 'x (lor (p 'x) (r 'y)))
+    (->nnf ;; prenex-normal-form
+     (simplify
+      (implies (forall 'x (lor (p 'x) (r 'y)))
               (lor (exists 'y (exists 'z (negate (q 'y))))
                    (negate (exists 'z (land (p 'z) (q 'z)))))
-              ))))
+              )))))
+
+;;;; Skolemization and Herbrandization.
+;;;; 
+;;;; We can skolemize formulas in prenex normal form, i.e., replace
+;;;; all instances of existantially quantified variables with
+;;;; functions (or constants). Schematically the formula
+;;;; 
+;;;;     (forall (x_1 .. x_m) (exists y) (fm x_1 .. x_m y))
+;;;; 
+;;;; becomes
+;;;; 
+;;;;     (forall (x_1 .. x_m) (fm x_1 .. x_m (skolem-fn y x_1 .. x_m)))
+;;;; 
+;;;; where `skolem-fn' is a fresh function named `y' which depends on
+;;;; arguments `x_1', ..., `x_m'.
+;;;; 
+
+(defmethod functions ((self formula))
+  (remove-duplicates
+   (reduce-over-atoms (lambda (pred fns)
+                        (append
+                         fns
+                         (mapcan #'functions (predicate-args pred))))
+                      self
+                      nil)
+   :test #'equal?))
+
+(defun skolem-symbol (name)
+  (intern name 'cl-aim.fol.formula))
+
+(defun skolem (fm fns)
+  "Produces a pair (skolemized-formula . fn-symbols-in-use)"
+  (declare (type formula fm))
+  (labels ((skolem-binary (clauses fns%)
+             (reduce (lambda (clause current-vals)
+                       (let* ((current-clauses (car current-vals))
+                              (current-fns (cdr current-vals))
+                              (results (skolem clause current-fns)))
+                         (cons (cons (car results) current-clauses)
+                               (cdr results))))
+                     clauses
+                     :initial-value (cons nil fns%)
+                     :from-end t
+                     )))
+  (typecase fm
+    (exists (let* ((fvs (remove-duplicates (free-vars fm) :test #'equal?))
+                   (f0 (skolem-symbol
+                        (concatenate 'string
+                                     (if (null fvs)
+                                         "c_"
+                                         "f_")
+                                     (symbol-name (var-name (exists-var fm))))))
+                   (f (if (member f0 fns :test #'equal?)
+                          (gensym (symbol-name f0))
+                          f0))
+                   (skolem-f (fn f (remove-duplicates
+                                    (mapcar #'var fvs)
+                                    :test #'equal?))))
+              (skolem (term-subst (exists-body fm)
+                                  (acons (exists-var fm) skolem-f nil)
+                                  :test #'equal?)
+                      (if (member f fns :test #'equal?)
+                          fns
+                          (cons f fns)))))
+    (forall (let* ((results (skolem (forall-body fm) fns))
+                   )
+              (cons (forall (forall-var fm) (car results))
+                    (cdr results))))
+    (l-and (let ((clauses-and-fns (skolem-binary
+                                   (l-and-conjuncts fm)
+                                   fns)))
+             (cons (make-instance 'l-and
+                                  :conjuncts (car clauses-and-fns))
+                   (cdr clauses-and-fns))))
+    (l-or (let ((clauses-and-fns (skolem-binary
+                                  (l-or-disjuncts fm)
+                                  fns)))
+            (cons (make-instance 'l-or :disjuncts (car clauses-and-fns))
+                  (cdr clauses-and-fns))))
+    (t (list fm fns)))))
+
+(defgeneric specialize (fm)
+  (:documentation "Removes all leading `forall' quantifiers in formula.
+
+Useful for giving an equisatisfiable formula with no explicit quantification.
+This comes in handy for a few satisfiability algorithms."))
+
+(defmethod specialize ((fm forall))
+  (specialize (forall-body fm)))
+
+(defmethod specialize ((fm formula))
+  fm)
+
+(defun skolemize (fm)
+  (declare (type formula fm))
+  (let ((nnf-skolemized (car (skolem
+                              (->nnf (simplify fm))
+                              (functions fm)))))
+    (specialize (nnf->prenex nnf-skolemized))))
+
 

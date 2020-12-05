@@ -5,7 +5,8 @@
            vars
            arity
            equal?
-           term-subst))
+           term-subst
+           functions))
 (in-package #:cl-aim.fol.term)
 
 (defclass term ()
@@ -24,7 +25,9 @@
   (format stream (if *debug?* "(#var ~A)" "~A") (var-name object)))
 
 (defun var (x)
-  (make-instance 'var :name x))
+  (if (typep x 'var)
+      x
+      (make-instance 'var :name x)))
 
 (defclass fn (term)
   ((name :accessor fn-name
@@ -50,6 +53,7 @@
 (defmethod arity ((f fn))
   (length (fn-args f)))
 
+;;;; Free and bound variables occurring in a term.
 (defgeneric vars (x)
   (:documentation "Return all the VAR instances in the term."))
 
@@ -61,6 +65,7 @@
     (remove-duplicates (mapcan #'vars (fn-args self))
                        :key #'var-name)))
 
+;;;; Term substitution.
 (defgeneric term-subst (self replacement-alist &key test ;; (test #'equal?)
                                                ))
 
@@ -73,5 +78,19 @@
 (defmethod term-subst ((self fn) replacement-alist &key (test #'equal?))
   (fn (fn-name self)
       (mapcar (lambda (arg)
-                (subst arg replacement-alist :test test))
+                (term-subst arg replacement-alist :test test))
               (fn-args self))))
+
+;;;; Functions appearing in an expression.
+(defgeneric functions (self)
+  (:documentation "Returns a list of symbols used as function names appearing in expression"))
+
+(defmethod functions ((self var))
+  nil)
+
+(defmethod functions ((self fn))
+  (let ((results (remove-duplicates (mapcan #'functions (fn-args self))
+                                    :test #'equal?)))
+    (if (member (fn-name self) results :test #'equal?)
+        results
+        (cons (fn-name self) results))))

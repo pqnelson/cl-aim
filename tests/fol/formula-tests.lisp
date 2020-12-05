@@ -91,12 +91,12 @@
                   (iff (exists 'y (q 'y))
                        (exists 'z (land (p 'z) (q 'z))))))
                 (lor (exists 'x (negate (p 'x)))
-                     (lor (land (forall 'y (negate (q 'y)))
-                                (forall 'z (lor (negate (p 'z))
-                                                (negate (q 'z)))))
-                          (land (exists 'y (q 'y))
-                                (exists 'z (land (p 'z)
-                                                 (q 'z))))))))
+                     (land (forall 'y (negate (q 'y)))
+                           (forall 'z (lor (negate (p 'z))
+                                           (negate (q 'z)))))
+                     (land (exists 'y (q 'y))
+                           (exists 'z (land (p 'z)
+                                            (q 'z)))))))
     ))
 
 (deftest pull-quantifiers-test
@@ -116,3 +116,38 @@
                 (forall 'x (exists 'x (lor (p 'x)
                                            (q 'y)
                                            (r 'x))))))))
+
+(deftest simplifies-test
+  (labels ((make-prop (p) (make-instance 'predicate :name p :args nil)))
+    (ok (equal? (simplify (implies
+                           (implies verum (iff (make-prop 'x) contradiction))
+                           (negate (lor (make-prop 'y)
+                                        (land (make-prop 'z) contradiction)
+                                        ))))
+                (implies (negate (make-prop 'x))
+                         (negate (make-prop 'y)))))))
+
+(deftest skolemize-test
+  (labels ((lt (a b)
+             (make-instance 'predicate
+                            :name :LT
+                            :args (list a b)))
+           (times (a b)
+             (fn :* (list a b)))
+           (f (x)
+             (cl-aim.fol.formula::skolem-symbol
+              (concatenate 'string "f_" (symbol-name x)))))
+    (ok
+     (equal?
+      (skolemize
+       (exists (var 'y)
+               (implies (lt (var 'x) (var 'y))
+                        (forall (var 'u)
+                                (exists (var 'v)
+                                        (lt (times (var 'x) (var 'u))
+                                            (times (var 'y) (var 'v))))))))
+      (lor (negate (lt (var 'x) (fn (f 'y) (list (var 'x)))))
+           (lt (times (var 'x) (var 'u))
+               (times (fn (f 'y) (list (var 'x)))
+                      (fn (f 'v) (list (var 'x) (var 'u)))))))))
+  )

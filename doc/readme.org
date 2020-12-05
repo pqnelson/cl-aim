@@ -15,4 +15,5 @@ manner that is "foundations independent", in the sense that the same
 definitions, theorems, and proofs can "compile" into different
 foundations without modification.
 
-- =proof.org= discusses the DSL of proof steps
+- [[./fol.org]] discusses the DSL of first-order logic terms and formulas
+- [[./proof.org]] discusses the DSL of proof steps
