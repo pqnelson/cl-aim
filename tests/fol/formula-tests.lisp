@@ -10,8 +10,8 @@
                                :fill-pointer 0
                                :adjustable t)))
              (with-output-to-string (s fstr)
-               (format s "~A" (var 'xyz)))
-             (string-equal "xyz" fstr)))
+               (format s "~A" obj))
+             (string-equal expected-str fstr)))
          (q (x)
            (make-instance 'predicate :name :q
                           :args (list (var x))))
@@ -20,23 +20,23 @@
                           :args (list (var x)))))
   (deftest print-iff-test
     (ok (test-for (iff (p 'x)
-                   (q 'y))
-                  "(#iff #pred(:P X) #pred(:Q Y))")))
+                       (q 'y))
+                  "(iff #pred(P X) #pred(Q Y))")))
   (deftest print-implies-test
     (ok (test-for (implies (p 'x)
-                       (q 'y))
-                  "(#implies #pred(:P X) #pred(:Q Y))")))
+                           (q 'y))
+                  "(implies #pred(P X) #pred(Q Y))")))
   (deftest print-land-test
     (ok (test-for (land (p 'x)
                     (q 'y))
-                  "(#and #pred(:P X) #pred(:Q Y))")))
+                  "(land #pred(P X) #pred(Q Y))")))
   (deftest print-lor-test
     (ok (test-for (lor (p 'x)
                     (q 'y))
-                  "(#or #pred(:P X) #pred(:Q Y))")))
+                  "(lor #pred(P X) #pred(Q Y))")))
   (deftest print-not-test
     (ok (test-for (negate (p 'x))
-                  "(#not #pred(:P X))")))
+                  "(#not #pred(P X))")))
   
   (deftest print-constant-test
     (ok (test-for verum
@@ -45,17 +45,16 @@
                   "#const(CONTRADICTION)")))
   (deftest print-exists-test
     (ok (test-for (exists 'x (p 'x))
-              "(#exists X #pred(:P X))"))
+              "(#exists X #pred(P X))"))
     (ok (test-for (exists 'y (q 'y))
-              "(#exists Y #pred(:Q Y))"))
+              "(#exists Y #pred(Q Y))"))
     )
   (deftest print-forall-test
     (ok (test-for (forall 'x (p 'x))
-                  "(#forall X #pred(:P X))"))
+                  "(#forall X #pred(P X))"))
     (ok (test-for (forall 'y (q 'y))
-                  "(#forall Y #pred(:Q Y))"))
+                  "(#forall Y #pred(Q Y))"))
     ))
-
 
 (deftest nnf-tests
   (labels ((p (x) (make-instance 'predicate
@@ -98,6 +97,7 @@
                            (exists 'z (land (p 'z)
                                             (q 'z)))))))
     ))
+
 
 (deftest pull-quantifiers-test
   (labels ((p (x)
@@ -149,5 +149,4 @@
       (lor (negate (lt (var 'x) (fn (f 'y) (list (var 'x)))))
            (lt (times (var 'x) (var 'u))
                (times (fn (f 'y) (list (var 'x)))
-                      (fn (f 'v) (list (var 'x) (var 'u)))))))))
-  )
+                      (fn (f 'v) (list (var 'x) (var 'u))))))))))

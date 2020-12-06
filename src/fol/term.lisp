@@ -6,7 +6,8 @@
            arity
            equal?
            term-subst
-           functions))
+           functions
+           occurs-in?))
 (in-package #:cl-aim.fol.term)
 
 (defclass term ()
@@ -94,3 +95,14 @@
     (if (member (fn-name self) results :test #'equal?)
         results
         (cons (fn-name self) results))))
+
+;;; A helper function to check if a subexpression occurs in an expression
+(defgeneric occurs-in? (sub expr))
+
+(defmethod occurs-in? (sub (expr var))
+  (equal? sub expr))
+
+(defmethod occurs-in? (sub (expr fn))
+  (or (equal? expr)
+      (some #'(lambda (e) (occurs-in? sub e))
+            (fn-args expr))))

@@ -1,11 +1,22 @@
 (defpackage #:cl-aim.fol.formula
   (:use #:cl #:cl-aim.utils)
+  (:shadowing-import-from #:cl-aim.fol.term occurs-in?)
   (:import-from #:cl-aim.fol.term vars var term fn var-name term-subst functions)
-  (:export iff implies land lor negate predicate forall exists
+  (:export formula iff iff-premise iff-conclusion iff?
+           implies implies-premise implies-conclusion implies?
+           land l-and-conjuncts land?
+           lor l-or-disjuncts lor?
+           negate negation-argument negation?
+           predicate predicate-name predicate-args
+           prop equals forall exists
            verum contradiction vars free-vars simplify
-           equal? ->nnf term-subst
+           equal? occurs-in? free-in?
+           ->nnf term-subst
            pull-quantifiers skolemize))
 (in-package #:cl-aim.fol.formula)
+;; NOTE: we experience a performance hit, I think, by making `->nnf'
+;;       and prenex-normal-form produce new formulas rather than mutating
+;;       in place.
 
 (defclass formula ()
   ())
@@ -26,8 +37,10 @@
                  :premise premise
                  :conclusion conclusion))
 
+(defun implies? (x) (typep x 'implies))
+
 (defmethod print-object ((object implies) stream)
-  (format stream "(#implies ~A ~A)" (implies-premise object)
+  (format stream "(implies ~A ~A)" (implies-premise object)
           (implies-conclusion object)))
 
 (defclass l-or (formula)
@@ -36,7 +49,7 @@
               :type (cons formula))))
 
 (defmethod print-object ((object l-or) stream)
-  (format stream "(#or ~A)" (l-or-disjuncts object)))
+  (format stream "(lor ~{~A~^ ~})" (l-or-disjuncts object)))
 
 (defun lor? (x) (typep x 'l-or))
 
@@ -53,7 +66,7 @@
 (defun land? (x) (typep x 'l-and))
 
 (defmethod print-object ((object l-and) stream)
-  (format stream "(#and ~A)" (l-and-conjuncts object)))
+  (format stream "(land ~{~A~^ ~})" (l-and-conjuncts object)))
 
 (defun land (&rest conjuncts)
   (make-instance
@@ -67,6 +80,8 @@
 
 (defmethod print-object ((object negation) stream)
   (format stream "(#not ~A)" (negation-argument object)))
+
+(defun negation? (x) (typep x 'negation))
 
 (defun negate (fm)
   (declare (type formula fm))
@@ -89,8 +104,10 @@
                  :conclusion conclusion))
 
 (defmethod print-object ((object iff) stream)
-  (format stream "(#iff ~A ~A)" (iff-premise object)
+  (format stream "(iff ~A ~A)" (iff-premise object)
           (iff-conclusion object)))
+
+(defun iff? (x) (typep x 'iff))
 
 (defclass logical-constant (formula)
   ((name :type symbol
@@ -136,6 +153,8 @@
                           x)
                  :body matrix))
 
+(defun forall? (x) (typep x 'forall))
+
 (defclass exists (formula)
   ((var :initarg :var
         :accessor exists-var
@@ -157,6 +176,8 @@
                           x)
                  :body matrix))
 
+(defun exists? (x) (typep x 'exists))
+
 (defclass predicate (formula)
   ((name :initarg :name
          :accessor predicate-name)
@@ -166,8 +187,28 @@
          :type (or nil (cons cl-aim.fol.term:term)))))
 
 (defmethod print-object ((object predicate) stream)
-  (format stream "#pred(~A ~A)" (predicate-name object)
+  (format stream "#pred(~A~{ ~A~^ ~})" (predicate-name object)
           (predicate-args object)))
+
+(defun predicate? (x) (typep x 'predicate))
+
+(defun predicate (p args)
+  (make-instance 'predicate
+                 :name p
+                 :args args))
+
+(defun prop (p)
+  (declare (type symbol p))
+  (make-instance 'predicate
+                 :name p
+                 :args nil))
+
+(defun equals (lhs rhs)
+  "Make a formula asserting equality of terms."
+  (declare (type term lhs rhs))
+  (make-instance 'predicate
+                 :name '=
+                 :args (list lhs rhs)))
 
 ;;; equal? tests if the formulas are equal or not, it's not deep.
 (defmethod equal? ((lhs implies) (rhs implies))
@@ -205,6 +246,80 @@
   (eq (logical-constant-name lhs)
       (logical-constant-name rhs)))
 
+;;; test if a subexpression occurs anywhere in an expression
+(defmethod occurs-in? (sub (expr implies))
+  (or (equal? sub expr)
+      (occurs-in? sub (implies-premise expr))
+      (occurs-in? sub (implies-conclusion expr))))
+
+(defmethod occurs-in? (sub (expr iff))
+  (or (equal? sub expr)
+      (occurs-in? sub (iff-premise expr))
+      (occurs-in? sub (iff-conclusion expr))))
+
+(defmethod occurs-in? (sub (expr negation))
+  (or (equal? sub expr)
+      (occurs-in? (negation-argument expr))))
+
+(defmethod occurs-in? (sub (expr l-or))
+  (or (equal? sub expr)
+      (some #'(lambda (e) (occurs-in? sub e))
+            (l-or-disjuncts expr))))
+
+(defmethod occurs-in? (sub (expr l-and))
+  (or (equal? sub expr)
+      (some #'(lambda (e) (occurs-in? sub e))
+            (l-and-conjuncts expr))))
+
+(defmethod occurs-in? (sub (expr logical-constant))
+  (equal? sub expr))
+
+(defmethod occurs-in? (sub (expr predicate))
+  (or (equal? sub expr)
+      (some #'(lambda (e) (occurs-in? sub e))
+            (predicate-args expr))))
+
+;;; check if a term is free in a formula
+(defgeneric free-in? (tm fm))
+
+(defmethod free-in? ((tm term) (fm implies))
+  (or (free-in? tm (implies-premise fm))
+      (free-in? tm (implies-conclusion fm))))
+
+(defmethod free-in? ((tm term) (fm iff))
+  (or (free-in? tm (iff-premise fm))
+      (free-in? tm (iff-conclusion fm))))
+
+(defmethod free-in? ((tm term) (fm l-and))
+  (some #'(lambda (clause)
+            (free-in? tm clause))
+        (l-and-conjuncts fm)))
+
+(defmethod free-in? ((tm term) (fm l-or))
+  (some #'(lambda (clause)
+            (free-in? tm clause))
+        (l-or-disjuncts fm)))
+
+(defmethod free-in? ((tm term) (fm negation))
+  (free-in? tm (negation-argument fm)))
+
+(defmethod free-in? ((tm term) (fm predicate))
+  (some #'(lambda (arg)
+            (occurs-in? tm arg))
+        (predicate-args fm)))
+
+(defmethod free-in? ((tm term) (fm exists))
+  (unless (occurs-in? (exists-var fm) tm)
+    (occurs-in? tm (exists-body fm))))
+
+(defmethod free-in? ((tm term) (fm forall))
+  (unless (occurs-in? (forall-var fm) tm)
+    (occurs-in? tm (forall-body fm))))
+
+(defmethod free-in? ((tm term) (fm formula))
+  nil)
+
+;;; all variables occurring in a formula
 (defun cons-distinct-vars (list new-vars)
   (reduce (lambda (coll x)
             (if (member x coll :key #'var-name)
@@ -393,9 +508,9 @@
                                  (append (l-or-disjuncts premise)
                                          (l-or-disjuncts conclusion)))
                            premise))
-                        ((or (typep conclusion 'exists)
-                             (typep conclusion 'forall)
-                             (typep conclusion 'predicate))
+                        ((or (exists? conclusion)
+                             (forall? conclusion)
+                             (predicate? conclusion))
                          (progn
                            (setf (l-or-disjuncts premise)
                                  (append (l-or-disjuncts premise)
@@ -403,9 +518,9 @@
                            premise))
                         (t (lor premise conclusion))))
                  ((lor? conclusion)
-                  (cond ((or (typep premise 'exists)
-                             (typep premise 'forall)
-                             (typep premise 'predicate))
+                  (cond ((or (exists? premise)
+                             (forall? premise)
+                             (predicate? premise))
                          (progn
                            (setf (l-or-disjuncts conclusion)
                                  (cons premise
@@ -437,7 +552,7 @@
     (l-or (every #'nnf? (l-or-disjuncts fm)))
     (exists (nnf? (exists-body fm)))
     (forall (nnf? (forall-body fm)))
-    (negation (typep (negation-argument fm) 'predicate))
+    (negation (predicate? (negation-argument fm)))
     (predicate t)
     (logical-constant t)))
 
@@ -507,8 +622,7 @@
     (negation (cond
                 ((verum? (negation-argument formula)) contradiction)
                 ((contradiction? (negation-argument formula)) verum)
-                ((typep (negation-argument formula)
-                        'negation)
+                ((negation? (negation-argument formula))
                  (negation-argument (negation-argument formula)))
                 (t formula)))
     ;; TODO: consider "flattening" nested (#and a (#and b c) d)
