@@ -6,7 +6,7 @@
            implies implies-premise implies-conclusion implies?
            land l-and-conjuncts land?
            lor l-or-disjuncts lor?
-           negate negation-argument negation?
+           negation l-neg negation-argument negation?
            predicate predicate-name predicate-args
            prop equals forall exists
            verum contradiction vars free-vars simplify
@@ -83,7 +83,7 @@
 
 (defun negation? (x) (typep x 'negation))
 
-(defun negate (fm)
+(defun l-neg (fm)
   (declare (type formula fm))
   (make-instance 'negation :formula fm))
 
@@ -184,7 +184,7 @@
    (args :initarg :args
          :accessor predicate-args
          :initform nil
-         :type (or nil (cons cl-aim.fol.term:term)))))
+         :type (or null (cons cl-aim.fol.term:term)))))
 
 (defmethod print-object ((object predicate) stream)
   (format stream "#pred(~A~{ ~A~^ ~})" (predicate-name object)
@@ -412,7 +412,7 @@
            (type (function (formula *) *) f))
   (typecase fm
     (predicate (f fm))
-    (negation (negate (map-atoms f (negation-body fm))))
+    (negation (l-neg (map-atoms f (negation-body fm))))
     (l-and (make-instance 'l-and
                           :conjuncts (mapcar (lambda (clause)
                                                (map-atoms f clause))
@@ -450,34 +450,34 @@
     (l-and (make-instance 'l-or
                           :disjuncts
                           (mapcar (lambda (clause)
-                                    (nnf (negate clause)))
+                                    (nnf (l-neg clause)))
                                   (l-and-conjuncts not-p))))
     (l-or  (make-instance 'l-and
                           :conjuncts
                           (mapcar (lambda (clause)
-                                    (nnf (negate clause)))
+                                    (nnf (l-neg clause)))
                                   (l-or-disjuncts not-p))))
     (implies (make-instance 'l-and
                             :conjuncts
                             (cons
                              (nnf (implies-premise not-p))
-                             (nnf (negate (implies-conclusion not-p))))))
+                             (nnf (l-neg (implies-conclusion not-p))))))
     (iff (lor (land
-               (nnf (negate (iff-premise not-p)))
+               (nnf (l-neg (iff-premise not-p)))
                (nnf (iff-conflusion not-p)))
               (land
                (nnf (iff-premise not-p))
-               (nnf (negate (iff-conflusion not-p))))))
+               (nnf (l-neg (iff-conflusion not-p))))))
     (exists (make-instance 'forall
                            :var (exists-var not-p)
-                           :body (nnf (negate (exists-body not-p)))))
+                           :body (nnf (l-neg (exists-body not-p)))))
     (forall
      (make-instance 'exists
                     :var (forall-var not-p)
-                    :body (nnf (negate (forall-body not-p)))))
+                    :body (nnf (l-neg (forall-body not-p)))))
     ;; default to: we don't know what (not p) is, so return
     ;; (not (nnf p))
-    (t (negate (nnf not-p)))
+    (t (l-neg (nnf not-p)))
     ))
 
 (defun nnf (p)
@@ -498,7 +498,7 @@
                                        (l-or-disjuncts clause)
                                        (list clause)))
                                  (mapcar #'nnf (l-or-disjuncts p)))))
-    (implies (let ((premise (nnf (negate (implies-premise p))))
+    (implies (let ((premise (nnf (l-neg (implies-premise p))))
                    (conclusion (nnf (implies-conclusion p))))
                (cond
                  ((lor? premise)
@@ -528,8 +528,8 @@
                            conclusion))
                         (t (lor premise conclusion))))
                  (t (lor premise conclusion)))))
-    (iff (lor (land (nnf (negate (iff-premise p)))
-                    (nnf (negate (iff-conclusion p))))
+    (iff (lor (land (nnf (l-neg (iff-premise p)))
+                    (nnf (l-neg (iff-conclusion p))))
               (land (nnf (iff-premise p))
                     (nnf (iff-conclusion p)))))
     (negation (not->nnf (negation-argument p)))
@@ -590,7 +590,7 @@
                       (l-and-conjuncts self))))
 
 (defmethod term-subst ((self negation) replacement-alist &key (test #'equal?))
-  (negate (term-subst (negation-argument self) replacement-alist :test test)))
+  (l-neg (term-subst (negation-argument self) replacement-alist :test test)))
 
 (defmethod term-subst ((self predicate) replacement-alist &key (test #'equal?))
   (make-instance 'predicate
@@ -656,7 +656,7 @@
                ((verum? (implies-premise formula)) (implies-conclusion formula))
                ((verum? (implies-conclusion formula)) verum)
                ((contradiction? (implies-conclusion formula))
-                (negate (implies-conclusion formula)))
+                (l-neg (implies-conclusion formula)))
                (t formula)))
     (iff (cond
            ((verum? (iff-conclusion formula))
@@ -664,9 +664,9 @@
            ((verum? (iff-premise formula))
             (iff-conclusion formula))
            ((contradiction? (iff-premise formula))
-            (negate (iff-conclusion formula)))
+            (l-neg (iff-conclusion formula)))
            ((contradiction? (iff-conclusion formula))
-            (negate (iff-premise formula)))
+            (l-neg (iff-premise formula)))
            (t formula)
            ))
     (t formula)))
@@ -689,7 +689,7 @@
 (defun simplify (fm)
   (declare (type formula fm))
   (typecase fm
-    (negation (remove-unused-quantifier (negate (simplify (negation-argument fm)))))
+    (negation (remove-unused-quantifier (l-neg (simplify (negation-argument fm)))))
     (l-and (remove-unused-quantifier
             (let ((results (mapcar #'simplify (l-and-conjuncts fm))))
               (if (singleton? results)
@@ -771,7 +771,7 @@
                       (bound-vars (iff-conclusion fm))))
     (l-or (mapcan #'bound-vars (l-or-disjuncts fm)))
     (l-and (mapcan #'bound-vars (l-and-conjuncts fm)))
-    (negation (bound-vars (negation-argument )))
+    (negation (bound-vars (negation-argument fm)))
     (forall (let ((results (bound-vars (forall-body fm))))
               (if (member (forall-var fm) results :test #'equal?)
                   results
@@ -890,8 +890,8 @@
     (->nnf ;; prenex-normal-form
      (simplify
       (implies (forall 'x (lor (p 'x) (r 'y)))
-              (lor (exists 'y (exists 'z (negate (q 'y))))
-                   (negate (exists 'z (land (p 'z) (q 'z)))))
+              (lor (exists 'y (exists 'z (l-neg (q 'y))))
+                   (l-neg (exists 'z (land (p 'z) (q 'z)))))
               )))))
 
 ;;;; Skolemization and Herbrandization.
