@@ -18,6 +18,10 @@
 (defmethod equal? ((lhs number) (rhs number))
   (= lhs rhs))
 
+(defmethod equal? ((lhs cons) (rhs cons))
+  (and (equal? (car lhs) (car rhs))
+       (equal? (cdr lhs) (cdr rhs))))
+
 (defun list-equal? (lhs rhs)
   (cond
     ((null lhs) (null rhs))

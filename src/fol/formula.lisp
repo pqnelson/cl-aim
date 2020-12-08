@@ -4,7 +4,7 @@
   (:import-from #:cl-aim.fol.term vars var term fn var-name term-subst functions)
   (:export formula iff iff-premise iff-conclusion iff?
            implies implies-premise implies-conclusion implies?
-           land l-and-conjuncts land?
+           land l-and l-and-conjuncts land?
            lor l-or-disjuncts lor?
            negation l-neg negation-argument negation?
            predicate predicate-name predicate-args
@@ -69,9 +69,12 @@
   (format stream "(land ~{~A~^ ~})" (l-and-conjuncts object)))
 
 (defun land (&rest conjuncts)
-  (make-instance
-   'l-and
-   :conjuncts (flatten-if #'land? conjuncts :transform #'l-and-conjuncts)))
+  (if (singleton? conjuncts)
+      (car conjuncts)
+      (make-instance
+       'l-and
+       :conjuncts (flatten-if #'land? conjuncts
+                              :transform #'l-and-conjuncts))))
 
 (defclass negation (formula)
   ((argument :initarg :formula

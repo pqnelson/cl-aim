@@ -1,5 +1,7 @@
 (defpackage #:cl-aim.fol.lcf-tests
-  (:import-from #:cl-aim.fol.formula prop implies iff contradiction)
+  (:import-from #:cl-aim.fol.formula prop implies iff contradiction
+                land l-neg verum
+                )
   (:import-from #:cl-aim.fol.thm make-thm)
   (:use #:cl #:cl-aim.utils #:rove #:cl-aim.fol.lcf))
 (in-package #:cl-aim.fol.lcf-tests)
@@ -146,6 +148,20 @@
                  (make-thm (implies r s)))
                 (make-thm (implies p (implies q s)))))))
 
+(deftest test-implies-transitivity-chain
+  (let ((p (prop 'p))
+        (q1 (prop 'q1))
+        (q2 (prop 'q2))
+        (q3 (prop 'q3))
+        (r (prop 'r)))
+    (ok (equal?
+         (implies-transitivity-chain
+          (list (make-thm (implies p q1))
+                (make-thm (implies p q2))
+                (make-thm (implies p q3)))
+          (make-thm (implies q1 (implies q2 (implies q3 r)))))
+         (make-thm (implies p r))))))
+
 (deftest test-not-q-and-p-and-p-implies-q-derives-contradiction
   (let ((p (prop 'p))
         (q (prop 'q)))
@@ -168,4 +184,47 @@
 ;;                     (implies (implies #pred(Q) #pred(Q%))
 ;;                              (implies (implies #pred(P) #pred(Q))
 ;;                                       (implies #pred(P%) #pred(Q%))))))))))
-  
+(deftest test-truth
+  (ok (equal? (truth)
+              (make-thm verum))))
+
+(deftest test-contrapositive
+  (let ((p (prop 'p))
+        (q (prop 'q)))
+    (ok (equal? (contrapositive (make-thm (implies p q)))
+                (make-thm (implies (l-neg q) (l-neg p)))))))
+
+(deftest test-and-left
+  (ok (equal? (and-left (prop 'p) (prop 'q))
+              (make-thm (implies (land (prop 'p) (prop 'q))
+                                 (prop 'p))))))
+
+(deftest test-and-right
+  (ok (equal? (and-right (prop 'p) (prop 'q))
+              (make-thm (implies (land (prop 'p) (prop 'q))
+                                 (prop 'q))))))
+
+(deftest test-conj-thms
+  (let* ((p (prop 'p))
+         (q (prop 'q))
+         (r (prop 'r))
+         (s (prop 's))
+         (pqrs (land p q r s)))
+    (ok (equal? (conj-thms (land p q r s))
+                (mapcar #'(lambda (fm)
+                            (make-thm (implies pqrs fm)))
+                        (list p q r s))))))
+
+(deftest test-expand-hypothesis
+  (let ((p (prop 'p))
+        (q (prop 'q))
+        (r (prop 'r)))
+    (ok (equal? (expand-hypothesis (make-thm (implies (land p q) r)))
+                (make-thm (implies p (implies q r)))))))
+
+(deftest test-contract-hypothesis
+  (let ((p (prop 'p))
+        (q (prop 'q))
+        (r (prop 'r)))
+    (ok (equal? (contract-hypothesis (make-thm (implies p (implies q r))))
+                (make-thm (implies (land p q) r))))))

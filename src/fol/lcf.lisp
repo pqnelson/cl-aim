@@ -9,8 +9,11 @@
            axiom-implies-swap implies-double-swap right-modus-ponens
            iff->left-implies iff->right-implies implies-antisymmetric
            double-negation ex-falso implies-transitivity-2
+           implies-transitivity-chain
            not-q-and-p-and-p-implies-q-derives-contradiction
-           axiom-implies-monotonic)
+           axiom-implies-monotonic
+           truth contrapositive and-left and-right conj-thms
+           expand-hypothesis contract-hypothesis)
   )
 (in-package #:cl-aim.fol.lcf)
 
@@ -201,13 +204,18 @@ This is because the formula is equivalent to `|- (and p q) => r'."
                                        th-rs))
                   th-pqr)))
 
-;; TODO: this is needed later :(
+;; Needed for `contract-hypothesis'.
 (defun implies-transitivity-chain (ths th)
   "From thms `|- p => q_i' for i=1..N, and `|- q_1 => ... => q_N => r',
  infer `|- p => r'."
   (declare (type (cons thm-implies) ths)
            (type thm-implies th))
-  )
+  (reduce #'(lambda (current-thm a)
+              (implies-unduplicate
+               (implies-transitivity a (implies-swap current-thm))))
+          (cdr ths)
+          :initial-value (implies-transitivity (car ths) th)))
+
 
 (defun not-q-and-p-and-p-implies-q-derives-contradiction (p q)
   "For any formulas P and Q, infers `|- (q => F) => p => (p => q) => F'."
@@ -228,3 +236,98 @@ This is because the formula is equivalent to `|- (and p q) => r'."
     (implies-transitivity th3
                           (implies-swap
                            (implies-transitivity th2 th1)))))
+
+(defun truth ()
+  "Establishes `|- verum.'"
+  (modus-ponens (iff->right-implies (axiom:true))
+                (implies-reflexivity contradiction)))
+
+(defun contrapositive (th)
+  "From `|- p => q' infer `|- (not q) => (not p)'."
+  (declare (type thm-implies th))
+  (let ((p (implies-premise (thm-statement th)))
+        (q (implies-conclusion (thm-statement th))))
+    (implies-transitivity
+     (implies-transitivity (iff->left-implies (axiom:negate q))
+                           (implies-add-conclusion contradiction th))
+     (iff->right-implies (axiom:negate p)))))
+
+(defun and-left (p q)
+  "For any P, Q we have `|- (and P Q) => P'."
+  (declare (type formula p q))
+  (let ((np-p-q-contradiction (implies-add-assume
+                               p
+                               (axiom:add-implies contradiction q))))
+    (implies-transitivity (iff->left-implies
+                           (axiom:expand-and p q))
+                          (double-negation
+                           (implies-add-conclusion
+                            contradiction
+                            np-p-q-contradiction)))))
+
+(defun and-right (p q)
+  "For any P, Q we have `|- (and P Q) => Q'."
+  (declare (type formula p q))
+  (let ((nq-p-nq (axiom:add-implies (implies q contradiction)
+                                    p)))
+    (implies-transitivity
+     (iff->left-implies (axiom:expand-and p q))
+     (double-negation (implies-add-conclusion contradiction nq-p-nq)
+                      ))))
+
+(defun conj-thms (fm)
+  "For any conjunction `(land p_1 ... p_N)', we have a list of N thm
+`|- (land p_1 .. p_n) => p_j' for j=1, ..., N."
+  (declare (type formula fm))
+  (if (land? fm)
+      (let ((p (car (l-and-conjuncts fm)))
+            (qs (apply #'land (remove-if #'null (cdr (l-and-conjuncts fm))))))
+        (cons (and-left p qs)
+              (if (not (land? qs))
+                  (list (implies-transitivity
+                         (and-right p qs)
+                         (implies-reflexivity qs)))
+                  (mapcar #'(lambda (th)
+                              ;; th = |- (and q_i .. q_n) => q_j
+                              (implies-transitivity
+                               (and-right p qs)
+                               th))
+                          (conj-thms qs)))))
+      (list (implies-reflexivity fm))))
+
+(defun and-pair (p q)
+  "For any formulas P and Q, we have `|- p => q => (p and q)'."
+  (declare (type formula p q))
+  (let* ((th1 (iff->right-implies (axiom:expand-and p q)))
+         (th2 (axiom-implies-swap (implies p (implies q contradiction))
+                                  q
+                                  contradiction))
+         (th3 (implies-add-assume p (implies-transitivity-2 th2 th1))))
+    (modus-ponens th3
+                  (implies-swap
+                   (implies-reflexivity
+                    (implies p (implies q contradiction)))))))
+
+(defun expand-hypothesis (th)
+  "Transform `|- (and p q) => r' into `|- p => (q => r)'."
+  (declare (type thm-implies th))
+  (let* ((p-and-q (implies-premise (thm-statement th)))
+         (p (car (l-and-conjuncts p-and-q)))
+         (q (cadr (l-and-conjuncts p-and-q))))
+    (assert (endp (cddr (l-and-conjuncts p-and-q))))
+    (modus-ponens (reduce #'implies-add-assume
+                          (l-and-conjuncts p-and-q)
+                          :initial-value th
+                          :from-end t)
+                  (and-pair p q))))
+
+(defun contract-hypothesis (th)
+  "Transform `|- p => (q => r)' into `|- (and p q) => r'."
+  (declare (type thm-implies th))
+  (let ((p (implies-premise (thm-statement th)))
+        (q (implies-premise (implies-conclusion (thm-statement th))))
+        (r (implies-conclusion (implies-conclusion (thm-statement th)))))
+    (implies-transitivity-chain (list (and-left p q)
+                                      (and-right p q))
+                                th)))
+  

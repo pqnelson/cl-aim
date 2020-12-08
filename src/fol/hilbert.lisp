@@ -109,7 +109,7 @@ Good references for LCF provers in general include
   (make-thm (implies (iff p q)
                      (implies p q))))
 
-(defaxiom iff->right-implies (p q)
+(defaxiom iff->xright-implies (p q)
   (declare (type formula p q))
   (make-thm (implies (iff p q)
                      (implies q p))))

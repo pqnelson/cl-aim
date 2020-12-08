@@ -16,4 +16,5 @@ definitions, theorems, and proofs can "compile" into different
 foundations without modification.
 
 - [[./fol.org]] discusses the DSL of first-order logic terms and formulas
+- [[./hilbert-lcf.org]] discusses the LCF prover for Hilbert calculus
 - [[./proof.org]] discusses the DSL of proof steps
