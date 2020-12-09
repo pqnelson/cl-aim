@@ -1,8 +1,11 @@
 (defpackage #:cl-aim.fol.lcf-tests
   (:import-from #:cl-aim.fol.formula prop implies iff contradiction
-                land l-neg verum
-                )
-  (:import-from #:cl-aim.fol.thm make-thm)
+                lor land l-neg verum
+                predicate equals
+                exists forall)
+  (:import-from #:cl-aim.fol.term fn var)
+  (:import-from #:cl-aim.fol.thm make-thm thm-statement)
+  (:local-nicknames (#:axiom #:cl-aim.fol.axiom))
   (:use #:cl #:cl-aim.utils #:rove #:cl-aim.fol.lcf))
 (in-package #:cl-aim.fol.lcf-tests)
 
@@ -42,7 +45,7 @@
   (let ((p (prop 'p))
         (q (prop 'q))
         (r (prop 'r)))
-    (ok (equal? (implies-insert (make-thm q) (make-thm (implies p r)))
+    (ok (equal? (implies-insert q (make-thm (implies p r)))
                 (make-thm (implies p (implies q r)))))))
 
 (deftest test-implies-swap
@@ -134,9 +137,12 @@
                 (make-thm (implies p q))))))
 
 (deftest test-ex-falso
-  (let ((p (prop 'p)))
-    (ok (equal? (ex-falso p)
-                (make-thm (implies contradiction p))))))
+    (let ((p (prop 'p))
+          (q (prop 'q)))
+      (ok (equal? (ex-falso p)
+                  (make-thm (implies contradiction p))))
+      (ok (equal? (ex-falso (implies p q))
+                  (make-thm (implies contradiction (implies p q)))))))
 
 (deftest test-implies-transitivity-2
   (let ((p (prop 'p))
@@ -228,3 +234,147 @@
         (r (prop 'r)))
     (ok (equal? (contract-hypothesis (make-thm (implies p (implies q r))))
                 (make-thm (implies (land p q) r))))))
+
+(deftest test-implies-false-consequents
+  (let ((p (prop 'p))
+        (q (prop 'q)))
+    (ok (equal?
+         (implies-false-consequents p q)
+         (list
+          (make-thm
+           (implies (implies (implies p q) contradiction) p))
+          (make-thm
+           (implies (implies (implies p q) contradiction)
+                    (implies q contradiction))))))))
+
+(deftest test-implies-false-rule
+  (let ((p (prop 'p))
+        (q (prop 'q))
+        (r (prop 'r)))
+    (ok (equal?
+         (implies-false-rule
+          (make-thm (implies p (implies (implies q contradiction) r))))
+         (make-thm
+          (implies (implies (implies p q) contradiction) r))))))
+
+(deftest test-implies-true-rule
+  (let ((p (prop 'p))
+        (q (prop 'q))
+        (r (prop 'r)))
+    (ok (equal?
+         (implies-true-rule
+          (make-thm (implies (implies p contradiction) r))
+          (make-thm (implies q r)))
+         (make-thm (implies (implies p q) r)))))
+  )
+
+(deftest test-implies-contradiction
+  (let ((p (prop 'p))
+        (q (prop 'q))
+        (r (prop 'r)))
+    (ok (equal?
+         (implies-contradiction p q)
+         (make-thm (implies p (implies (implies p contradiction)
+                                       q)))))
+    (ok (equal?
+         (implies-contradiction (negate-formula p) q)
+         (make-thm (implies (implies p contradiction)
+                            (implies p q)))))))
+
+;; TODO: finish this...
+(deftest test-implies-front-th
+  (labels ((range (n)
+             (loop for k from 0 to n by 1
+                   collect k))
+           (int-to-prop (n)
+             (prop (intern (concatenate 'string "p" (write-to-string n)))))
+           (generate-props (n)
+             (append (mapcar #'(lambda (x) (int-to-prop x)) (range n))
+                     (prop 'q))))
+    ;; (implies-front-th 3 (reduce #'implies (generate-props 10) :from-end t))
+    )
+  )
+
+;; TODO test implies-front
+
+(deftest test-equals-symmetry
+  (let ((r (fn 'r nil))
+        (s (fn 's nil)))
+    (ok (equal? (equals-symmetry r s)
+                (make-thm (implies (equals r s)
+                                   (equals s r)))))))
+(deftest test-equals-transitivity
+  (let ((q (fn 'q nil))
+        (r (fn 'r nil))
+        (s (fn 's nil)))
+    (equal? (equals-transitivity q r s)
+            (make-thm (implies (equals q r)
+                               (implies (equals r s)
+                                        (equals q s)))))))
+
+(deftest test-iff-def
+  (let ((p (prop 'p))
+        (q (prop 'q)))
+    (ok (equal? (thm-statement (iff-def p q))
+                (iff (iff p q)
+                     (land (implies p q)
+                           (implies q p)))))))
+
+(deftest test-expand-connective
+  (ok (equal? (thm-statement (expand-connective verum))
+              (iff verum
+                   (implies contradiction contradiction))))
+  (let ((p (prop 'p))
+        (q (prop 'q)))
+    (ok (equal? (thm-statement (expand-connective (l-neg p)))
+                (iff (l-neg p)
+                     (implies p contradiction))))
+    (ok (equal? (thm-statement (expand-connective (land p q)))
+                (iff (land p q)
+                     (implies (implies p
+                                       (implies q contradiction))
+                              contradiction))))
+    (ok (equal? (thm-statement (expand-connective (lor p q)))
+                (iff (lor p q)
+                     (l-neg (land (l-neg p) (l-neg q))))))
+    (ok (equal? (expand-connective (iff p q))
+                (iff-def p q))))
+  ;; Buggy?
+  (let ((x (var 'x))
+        (p (lambda (v) (predicate 'p (list v)))))
+    (ok (equal? (thm-statement (expand-connective
+                                (exists x (funcall p x))))
+                (iff (exists x (funcall p x))
+                     (l-neg (forall x (l-neg (funcall p x)))))))
+    ))
+
+;; eliminate-connective
+;; implies-false-consequents
+;; implies-false-rule
+
+(deftest test-tableau
+  (let ((p (prop 'p))
+        (q (prop 'q)))
+    (ok (equal?
+         (thm-statement
+          (tableaux (list (negate-formula (iff (land p q)
+                                               (iff (iff p q)
+                                                    (lor p q)))))
+                    nil))
+         (implies (implies (iff (land p q)
+                                (iff (iff p q)
+                                     (lor p q)))
+                           contradiction)
+                  contradiction)))))
+
+(deftest test-tautology
+  (let ((p (prop 'p))
+        (q (prop 'q)))
+    (ok (equal? (thm-statement (tautology (lor (implies p q) (implies q p))))
+                (lor (implies p q) (implies q p))))
+    (ok (equal? (thm-statement (tautology (iff (land p q)
+                                               (iff (iff p q)
+                                                    (lor p q)))))
+                (iff (land p q)
+                     (iff (iff p q)
+                          (lor p q)))))))

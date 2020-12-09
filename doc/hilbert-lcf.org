@@ -17,7 +17,7 @@ universal quantification added for first-order logic.
 * Encoding the Axioms of the Hilbert Calculus
 
 We have a number of axioms, which we encode using =defaxiom=. This
-creates a function in [[../src/fol/axiom.lisp][=cl-aim.fol.axiom=]] which accepts some
+creates a function in [[../src/fol/axiom.lisp][cl-aim.fol.axiom]] which accepts some
 metavariables, then produces a =thm= object.
 
 The =thm= abstraction is used to contain proven =formula=
@@ -35,9 +35,11 @@ concerned about at the moment.
 
 Nothing comes for free with LCF, and we need to use the axioms
 given to derive useful inference rules. This is done precisely in
-[[../src/fol/lcf.lisp][=lcf.lisp=]], which is probably as exciting as Homer's catalog of
+[[../src/fol/lcf.lisp][lcf.lisp]], which is probably as exciting as Homer's catalog of
 ships. Each inference rule is tested.
 
 So far, a good chunk of propositional logic has been encoded.
 
-What's left is to write a simple prover engine. 
+What's left is to write a simple prover engine. Once we have the
+proof engine working, we can shift gear to incorporate first-order
+logic to our system.

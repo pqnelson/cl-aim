@@ -92,15 +92,15 @@ Good references for LCF provers in general include
 
 (defaxiom predicate-congruence (p lefts rights)
   ;; |- l1 = r1 => l2 = r2 => ... => l-last = r-last => (P lefts) = (P rights)
-  (declare (type symbol p)
+  (declare (type (function (*) predicate) p)
            (type (or null (cons term)) lefts rights))
   (if (null lefts)
       (progn (assert (null rights))
-             (make-thm (implies (predicate p nil) (predicate p nil))))
+             (make-thm (implies (funcall p nil) (funcall p nil))))
       (make-thm (zip-terms lefts
                            rights
                            (lambda (args)
-                             (predicate p args))
+                             (funcall p args))
                            #'implies)))
   )
 
@@ -109,7 +109,7 @@ Good references for LCF provers in general include
   (make-thm (implies (iff p q)
                      (implies p q))))
 
-(defaxiom iff->xright-implies (p q)
+(defaxiom iff->right-implies (p q)
   (declare (type formula p q))
   (make-thm (implies (iff p q)
                      (implies q p))))
@@ -134,11 +134,24 @@ Good references for LCF provers in general include
                  (implies (implies p (implies q contradiction))
                           contradiction))))
 
+(defaxiom expand-and* (&rest clauses)
+  (declare (type (cons formula) clauses))
+  (make-thm (iff (apply #'land clauses)
+                 (implies (reduce #'implies clauses
+                                  :initial-value contradiction
+                                  :from-end t)
+                          contradiction))))
+
 (defaxiom expand-or (p q)
   (declare (type formula p q))
   (format t "~% package: ~A" (package-name *package*))
   (make-thm (iff (lor p q)
                  (l-neg (land (l-neg p) (l-neg q))))))
+
+(defaxiom expand-or* (&rest clauses)
+  (declare (type (or null (cons formula)) clauses))
+  (make-thm (iff (apply #'lor clauses)
+                 (l-neg (apply #'land (mapcar #'l-neg clauses))))))
 
 (defaxiom exists-iff-not-forall-not (x p)
   (declare (type (or var symbol) x)

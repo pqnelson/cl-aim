@@ -1,6 +1,6 @@
 (defpackage #:cl-aim.utils
   (:use #:cl)
-  (:export equal? list-equal? singleton? flatten-if))
+  (:export equal? list-equal? singleton? flatten-if partition-by))
 (in-package #:cl-aim.utils)
 
 (defun singleton? (coll)
@@ -38,3 +38,28 @@
           coll
           :initial-value nil
           :from-end t))
+
+(defun partition (n coll)
+  (declare (type integer n)
+           (type (or cons nil) coll))
+  (let ((results nil))
+    (labels ((partition-inner (k lst)
+               (if (and (plusp k)
+                        (not (endp lst)))
+                   (progn
+                     (push (car lst) results)
+                     (partition-inner (1- k) (cdr lst)))
+                   (list (nreverse results) lst))
+               ))
+      (partition-inner n coll))))
+
+(defun partition-by (pred? coll)
+  (labels ((partition-inner (lst results)
+             (if (funcall pred? (car lst))
+                 (return-from partition-by (list (nreverse results) lst))
+                 (if (endp lst)
+                     (list results nil)
+                     (partition-inner (cdr lst) (cons (car lst) results))))))
+    (partition-inner coll nil)
+    ;; results
+    ))

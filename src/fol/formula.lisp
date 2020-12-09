@@ -4,12 +4,15 @@
   (:import-from #:cl-aim.fol.term vars var term fn var-name term-subst functions)
   (:export formula iff iff-premise iff-conclusion iff?
            implies implies-premise implies-conclusion implies?
-           land l-and l-and-conjuncts land?
-           lor l-or-disjuncts lor?
+           l-and land l-and l-and-conjuncts land?
+           l-or lor l-or-disjuncts lor?
            negation l-neg negation-argument negation?
-           predicate predicate-name predicate-args
-           prop equals forall exists
-           verum contradiction vars free-vars simplify
+           predicate predicate? predicate-name predicate-args
+           prop equals forall forall? exists exists-var exists-body
+           logical-constant verum-type verum
+           contradiction contradiction? contradiction-type
+           negative-prop-literal? neg-prop-lit pos-prop-lit prop-literal
+           vars free-vars simplify
            equal? occurs-in? free-in?
            ->nnf term-subst
            pull-quantifiers skolemize))
@@ -128,12 +131,20 @@
 (defun verum? (x)
   (eq x verum))
 
+(deftype verum-type ()
+  `(and logical-constant
+        (satisfies verum?)))
+
 (unless (boundp 'contradiction)
   (defconstant contradiction (make-instance 'logical-constant :name 'contradiction)
     "The 'false' constant."))
 
 (defun contradiction? (x)
   (eq contradiction x))
+
+(deftype contradiction-type ()
+  `(and logical-constant
+        (satisfies contradiction?)))
 
 (defclass forall (formula)
   ((var :initarg :var
@@ -199,6 +210,24 @@
   (make-instance 'predicate
                  :name p
                  :args args))
+
+(defun negative-prop-literal? (x)
+  (and (implies? x)
+       (contradiction? (implies-conclusion x))
+       (or (typep x 'predicate)
+           (typep x 'forall))))
+
+(deftype neg-prop-lit ()
+  `(and implies
+        (satisfies negative-prop-literal?)))
+
+(deftype pos-prop-lit ()
+  `(or predicate
+       forall))
+
+(deftype prop-literal ()
+  `(or pos-prop-lit
+       neg-prop-lit))
 
 (defun prop (p)
   (declare (type symbol p))
