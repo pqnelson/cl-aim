@@ -18,7 +18,9 @@
            implies-true-rule
            implies-false-consequents implies-false-rule implies-contradiction
            tableaux tautology
-           equals-symmetry equals-transitivity)
+           equals-symmetry equals-transitivity
+           term-congruence axiom-generalize-right generalize-implies
+           generalize-right axiom-exists-left exists-left)
   )
 (in-package #:cl-aim.fol.lcf)
 
@@ -48,10 +50,10 @@
                                 th)
                   (implies-reflexivity p))))
 
-;;;; Elementary derived rules.
-;;;;
-;;;; We already have introduced a couple derived rules, like
-;;;; `implies-reflexivity' and `implies-unduplicate'. 
+;;; Elementary derived rules.
+;;;
+;;; We already have introduced a couple derived rules, like
+;;; `implies-reflexivity' and `implies-unduplicate'. 
 
 (defun negative? (fm)
   "Negated formulas in the Hilbert calculus look like `P => contradiction'."
@@ -337,10 +339,10 @@ This is because the formula is equivalent to `|- (and p q) => r'."
                                       (and-right p q))
                                 th)))
   
-;;;; Tableau prover.
-;;;;
-;;;; We need some small engine to prove theorems, and tableau are
-;;;; simple enough for us to get cooking.
+;;; Tableau prover.
+;;;
+;;; We need some small engine to prove theorems, and tableau are
+;;; simple enough for us to get cooking.
 
 (defun iff-def (p q)
   "Establishes `|- (p iff q) iff (and (p => q) (q => p))'."
@@ -434,58 +436,40 @@ This is because the formula is equivalent to `|- (and p q) => r'."
 (defun implies-front (n th)
   (modus-ponens (implies-front-th n (thm-statement th)) th))
 
-(defun atom-tableau (p fl ls)
+(defun atom-tableau (p fl lits)
+  "When P is a literal, produce a thm."
   (declare (type formula p)
-           (type (or null (cons formula)) fl ls))
-  (if (member (negate-formula p) ls :test #'equal?)
-      (let* ((neg-p (negate-formula p))
-             (parted-lits (partition-by
-                           #'(lambda (x)
-                               (equal? neg-p x))
-                           ls))
-             (l1 (car parted-lits))
-             (l2 (cadr parted-lits))
-             (th (implies-contradiction
-                  p
-                  (reduce #'implies (cdr l2)
-                                    :initial-value contradiction
-                                    :from-end t))))
-        (reduce #'implies-insert (append fl l1)
-                :initial-value th
-                :from-end t))
-      (implies-front (length fl) (tableaux fl (cons p ls)))))
+           (type (or null (cons formula)) fl lits))
+  (let ((not-p (negate-formula p)))
+    (destructuring-bind (l1 l2) (partition-by #'(lambda (x)
+                                                  (equal? not-p x))
+                                              lits)
+      (if (null l2) ;; i.e., not-p is not a member of lits
+          ;; grow the pool of literals by adding p,
+          ;; and try to find a contradiction in FL
+          (implies-front (length fl) (tableaux fl (cons p lits)))
+          ;; else, not-p is a member of lits
+          (let ((th (implies-contradiction
+                     p ;; th = `|- p => (not-p => (earlier lits))'
+                     (reduce #'implies (cdr l2)
+                             :initial-value contradiction
+                             :from-end t))))
+            ;; p => (newer lits) => (not-p => (earlier lits))
+            (reduce #'implies-insert (append fl l1)
+                    :initial-value th
+                    :from-end t))))))
 
-(defun atom-t-ex1 ()
-  (let ((p (prop 'p))
-        (q (prop 'q)))
-    (atom-tableau p
-                  (list (implies p contradiction))
-                  (list q p (implies q contradiction)))))
-
-(defun atom-tabl-ex0 ()
-  (let ((p (prop 'p))
-        (q (prop 'q)))
-    (atom-tableau p (list (implies q contradiction)) (list q))))
-
-
-
-;; seems good?
-(defun default-tableau (fm fl ls)
+(defun default-tableau (fm fl lits)
+  "When FM uses connectives other than `implies' and `contradiction', rewrite it and try `tableaux' again."
   (declare (type formula p)
-           (type (or null (cons formula)) fl ls))
+           (type (or null (cons formula)) fl lits))
   (let ((th (eliminate-connective fm)))
+    ;; We prove we get logically equivalent results as `tableaux'
     (implies-transitivity th (tableaux
                               (cons (implies-conclusion
                                      (thm-statement th))
                                     fl)
-                              ls))))
-(defun default-tab-ex1 ()
-  (let ((p (prop 'p))
-        (q (prop 'q)))
-    (default-tableau
-     (lor p q)
-     (list (implies p contradiction))
-     (list p p (implies p contradiction) p))))
+                              lits))))
 
 ;; Given a list of formulas FMS and literals LITS
 ;; we have an inferential form of tableaux.
@@ -544,7 +528,7 @@ This is because the formula is equivalent to `|- (and p q) => r'."
   (modus-ponens (axiom:double-negation p)
                 (tableaux (list (negate-formula p)) nil)))
 
-;;;; First-order derived rules.
+;;; First-order derived rules.
 
 ;; tested
 (defun equals-symmetry (r s)
@@ -559,6 +543,7 @@ This is because the formula is equivalent to `|- (and p q) => r'."
                   rth)
     ))
 
+;; tested
 (defun equals-transitivity (q r s)
   "Infer `|- (Q = R) => (R = S) => (Q = S)'."
   (declare (type term q r s))
@@ -571,5 +556,116 @@ This is because the formula is equivalent to `|- (and p q) => r'."
                             (axiom:equals-reflexive s))))
     (implies-transitivity (equals-symmetry q r) th2)))
 
+;; tested
+(defun term-congruence (x y x-term y-term)
+  "Establishes `x-term' equals `y-term' by replacing `x' with `y' in `x-term'.
 
+Produces a `thm' object."
+  (declare (type term x y x-term y-term))
+  (cond
+    ((equal? x-term y-term)
+     (add-assume (equals x y)
+                 (axiom:equals-reflexive x-term)))
+
+    ((and (equal? x x-term)
+          (equal? y y-term))
+     (implies-reflexivity (equals x y)))
+
+    ((and (fn? x-term)
+          (fn? y-term)
+          (eq (fn-name x-term) (fn-name y-term))
+          (= (arity x-term) (arity y-term)))
+     (let* ((thms (mapcar #'(lambda (x-arg y-arg)
+                              (term-congruence x y x-arg y-arg))
+                          (fn-args x-term)
+                          (fn-args y-term)))
+            (consequents (mapcar #'(lambda (th)
+                                     (implies-conclusion
+                                      (thm-statement th)))
+                                 thms))
+            )
+       (implies-transitivity-chain
+        thms
+        (axiom:fun-congruence (fn-name x-term)
+                              (mapcar #'equals-lhs consequents)
+                              (mapcar #'equals-rhs consequents)))))
+
+    (t (error "ICongruence: failed to find congruence!")
+     )))
+
+(defun axiom-generalize-right (x p q)
+  "When X is free in P, `|- (forall x . p => Q[x]) => p => (forall x Q[x])'.
+
+This is a variant of `axiom:forall-implies'."
+  (declare (type formula p q)
+           (type (or symbol var) x))
+  (implies-swap
+   (implies-transitivity (axiom:implies-forall x p)
+                         (implies-swap
+                          (axiom:forall-implies x p q)))))
+
+;; tested
+(defun generalize-implies (x th)
+  "From `|- P[x] => Q[x]' infer `|- (forall x P[x]) => (forall x Q[x])'."
+  (declare (type var x)
+           (type thm-implies th))
+  (let ((p (implies-premise (thm-statement th)))
+        (q (implies-conclusion (thm-statement th))))
+    (modus-ponens (axiom:forall-implies x p q)
+                  (generalize x th))))
+
+;; tested
+(defun generalize-right (x th)
+  "From `|- p => Q[x]' infer `|- p => (forall x Q[x])' when x is not free in P."
+  (declare (type var x)
+           (type thm-implies th))
+  (let ((p (implies-premise (thm-statement th)))
+        (q (implies-conclusion (thm-statement th))))
+    (modus-ponens (axiom-generalize-right x p q)
+                  (generalize x th))))
+
+;; tested
+(defun axiom-exists-left (x p q)
+  (declare (type var x)
+           (type formula p q))
+  "Derives `|- (forall x (P[x] => q)) => (exists x P[x]) => q'.
+
+It's a convoluted repetition of contrapositive with expanding the
+definition of existential quantifier."
+  (let* ((not-p (implies p contradiction))
+         (not-q (implies q contradiction))
+         (th2 (implies-transitivity
+               (generalize-implies
+                x
+                (implies-swap (axiom-implies-transitivity p q contradiction)))
+               (axiom-generalize-right x not-q not-p)))
+         (th3 (implies-swap
+               (axiom-implies-transitivity not-q (forall x not-p) contradiction)))
+         (th4 (implies-transitivity-2
+               (implies-transitivity th2 th3)
+               (axiom:double-negation q)))
+         (th5 (implies-add-conclusion
+               contradiction
+               (generalize-implies x (iff->right-implies
+                                      (axiom:negate p)))))
+         (th6 (implies-transitivity
+               (iff->left-implies (axiom:negate (forall x (l-neg p))))
+               th5))
+         (th7 (implies-transitivity
+               (iff->left-implies (axiom:exists-iff-not-forall-not x p))
+               th6))
+         )
+    (implies-swap (implies-transitivity th7
+                                        (implies-swap th4)))))
+
+;; tested
+(defun exists-left (x th)
+  "From `|- P[x] => q' infer `|- (exists x P[x]) => q' when X is free in Q."
+  (declare (type thm-implies th)
+           (type var x))
+  (let ((p (implies-premise (thm-statement th)))
+        (q (implies-conclusion (thm-statement th)))
+        )
+    (modus-ponens (axiom-exists-left x p q)
+                  (generalize x th))))
 

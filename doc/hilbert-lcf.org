@@ -43,3 +43,15 @@ So far, a good chunk of propositional logic has been encoded.
 What's left is to write a simple prover engine. Once we have the
 proof engine working, we can shift gear to incorporate first-order
 logic to our system.
+
+** Naming Conventions
+
+When it comes to axioms given by the Hilbert system, we place them
+in the =axiom= package. Really the =defaxiom= macro does this for
+us. In the other LCF packages, we simply use =(:local-nicknames (#:axiom #:cl-aim.fol.axiom))=
+to write things like =(axiom:negate p)=.
+
+For derived axioms, which are functions whose arguments do not
+include any =thm= objects, we prefix the function name with
+=axiom-=. This gives us a subtle but clear distinction between
+derived and primitive axioms.

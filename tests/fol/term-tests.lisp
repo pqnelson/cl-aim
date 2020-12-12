@@ -33,6 +33,18 @@
                                     (var 'beta)))))
       (ok (string-equal "#fn(f (xyz #fn(g (alpha)) beta))" fstr))))
 
+(deftest fn-name-tests
+    (ok (eq (fn-name (fn 'f (list (var 'x))))
+            'f)))
+
+(deftest fn-arity-tests
+    (ok (= (arity (fn 'f (list (var 'a) (var 'b) (var 'c))))
+           3))
+    (ok (= (arity (fn 'f (list (var 'a))))
+           1))
+    (ok (= (arity (fn 'f nil))
+           0)))
+
 (deftest fn-equal?-tests
     (ok (equal? (fn 'f (list (var 'x)))
                 (fn 'f (list (var 'x)))))

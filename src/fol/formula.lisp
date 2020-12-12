@@ -8,7 +8,8 @@
            l-or lor l-or-disjuncts lor?
            negation l-neg negation-argument negation?
            predicate predicate? predicate-name predicate-args
-           prop equals forall forall? exists exists-var exists-body
+           prop equals equals? equals-lhs equals-rhs
+           forall forall? exists exists-var exists-body
            logical-constant verum-type verum
            contradiction contradiction? contradiction-type
            negative-prop-literal? neg-prop-lit pos-prop-lit prop-literal
@@ -235,12 +236,33 @@
                  :name p
                  :args nil))
 
+;;; Equality, for equations.
+;;;
+;;; It may be a fun exercise to extend this from the "narrow
+;;; minded" equality to something resembling Common Lisp's n-ary
+;;; equality. That is to say, (equals x y z) really means
+;;; (land (equals x y) (equals y z)). This greatly complicates things for
+;;; me at the moment, though.
 (defun equals (lhs rhs)
   "Make a formula asserting equality of terms."
   (declare (type term lhs rhs))
   (make-instance 'predicate
                  :name '=
                  :args (list lhs rhs)))
+
+(defun equals? (eqn)
+  (and (typep eqn 'predicate)
+       (eq '= (predicate-name eqn))))
+
+(defun equals-lhs (eqn)
+  (declare (type predicate eqn))
+  (assert (equals? eqn))
+  (car (predicate-args eqn)))
+
+(defun equals-rhs (eqn)
+  (declare (type predicate eqn))
+  (assert (equals? eqn))
+  (cadr (predicate-args eqn)))
 
 ;;; equal? tests if the formulas are equal or not, it's not deep.
 (defmethod equal? ((lhs implies) (rhs implies))

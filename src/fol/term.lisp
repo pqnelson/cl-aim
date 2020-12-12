@@ -1,6 +1,6 @@
 (defpackage #:cl-aim.fol.term
   (:use :cl :cl-aim.utils)  
-  (:export var-name fn fn-name fn-args
+  (:export var-name fn fn? fn-name fn-args
            var term
            vars
            arity
@@ -41,6 +41,9 @@
   (make-instance 'fn
                  :name f
                  :args args))
+
+(defun fn? (x)
+  (typep x 'fn))
 
 (defmethod equal? ((lhs fn) (rhs fn))
   (and (equal? (fn-name lhs) (fn-name rhs))

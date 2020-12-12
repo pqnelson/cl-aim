@@ -4,7 +4,7 @@
                 predicate equals
                 exists forall)
   (:import-from #:cl-aim.fol.term fn var)
-  (:import-from #:cl-aim.fol.thm make-thm thm-statement)
+  (:import-from #:cl-aim.fol.thm thm make-thm thm-statement)
   (:local-nicknames (#:axiom #:cl-aim.fol.axiom))
   (:use #:cl #:cl-aim.utils #:rove #:cl-aim.fol.lcf))
 (in-package #:cl-aim.fol.lcf-tests)
@@ -297,21 +297,6 @@
 
 ;; TODO test implies-front
 
-(deftest test-equals-symmetry
-  (let ((r (fn 'r nil))
-        (s (fn 's nil)))
-    (ok (equal? (equals-symmetry r s)
-                (make-thm (implies (equals r s)
-                                   (equals s r)))))))
-(deftest test-equals-transitivity
-  (let ((q (fn 'q nil))
-        (r (fn 'r nil))
-        (s (fn 's nil)))
-    (equal? (equals-transitivity q r s)
-            (make-thm (implies (equals q r)
-                               (implies (equals r s)
-                                        (equals q s)))))))
-
 (deftest test-iff-def
   (let ((p (prop 'p))
         (q (prop 'q)))
@@ -378,3 +363,93 @@
                 (iff (land p q)
                      (iff (iff p q)
                           (lor p q)))))))
+
+;;; First-order logic
+(deftest test-equals-symmetry
+  (let ((r (fn 'r nil))
+        (s (fn 's nil)))
+    (ok (equal? (equals-symmetry r s)
+                (make-thm (implies (equals r s)
+                                   (equals s r)))))))
+
+(deftest test-equals-transitivity
+  (let ((q (fn 'q nil))
+        (r (fn 'r nil))
+        (s (fn 's nil)))
+    (equal? (equals-transitivity q r s)
+            (make-thm (implies (equals q r)
+                               (implies (equals r s)
+                                        (equals q s)))))))
+
+(deftest test-term-congruence
+  (let* ((x (var 'x))
+         (y (var 'y))
+         (z (var 'z))
+         (lhs (fn 'f (list x (fn 'g (list x y x)) z (fn 'h (list x)))))
+         (rhs (fn 'f (list x (fn 'g (list y y x)) z (fn 'h (list y))))))
+    (testing "The terms are the variables themselves"
+      (ok (term-congruence x y x y)))
+    (testing "Terms are equal"
+      (ok (typep (term-congruence x y x x) 'thm))
+      (ok (term-congruence x y lhs lhs))
+      (ok (term-congruence x y rhs rhs)))
+    (testing "Expressions are functions"
+      (ok (typep (term-congruence x y lhs rhs) 'thm)))))
+
+(deftest test-axiom-generalize-right
+  (let ((x (var 'x))
+        (p (prop 'p))
+        (q (predicate 'q (list (var 'x)))))
+    (ok (equal? (thm-statement (axiom-generalize-right x p q))
+                (implies (forall x (implies p q))
+                         (implies p (forall x q))))))
+  (testing "When x is a bound-variable in P"
+    (let ((x (var 'x))
+          (p (exists (var 'x)
+                     (predicate 'p (list (var 'x)))))
+          (q (predicate 'q (list (var 'x)))))
+      (ok (equal? (thm-statement (axiom-generalize-right x p q))
+                  (implies (forall x (implies p q))
+                           (implies p (forall x q)))))))
+  (testing "Gen-right when bound-variable is not x"
+    (let ((x (var 'x))
+          (p (exists (var 'x)
+                     (predicate 'p (list (var 'x)))))
+          (q (predicate 'q (list (var 'y)))))
+      (ok (equal? (thm-statement (axiom-generalize-right x p q))
+                  (implies (forall x (implies p q))
+                           (implies p (forall x q))))))))
+
+(deftest test-generalize-implies
+  (let* ((x (var 'x))
+         (p (predicate 'p (list (var 'x))))
+         (q (predicate 'q (list (var 'x))))
+         (th ))
+    (ok (typep (generalize-implies x (make-thm (implies p q))) 'thm))
+    (ok (equal? (thm-statement
+                 (generalize-implies x (make-thm (implies p q))))
+                (implies (forall x p)
+                         (forall x q))))))
+
+(deftest test-generalize-right
+  (let ((x (var 'x))
+        (p (prop 'p))
+        (q (predicate 'q (list (var 'x)))))
+    (ok (equal? (thm-statement (generalize-right x (make-thm (implies p q))))
+                (implies p (forall x q))))))
+        
+(deftest test-axiom-exists-left
+  (let ((x (var 'x))
+        (p (predicate 'p (list (var 'x))))
+        (q (prop 'q)))
+    (ok (equal? (thm-statement (axiom-exists-left x p q))
+                (implies (forall x (implies p q))
+                         (implies (exists x p)
+                                  q))))))
+
+(deftest test-exists-left
+  (let ((x (var 'x))
+        (p (predicate 'p (list (var 'x))))
+        (q (prop 'q)))
+    (ok (equal? (thm-statement (exists-left x (make-thm (implies p q))))
+                (implies (exists x p) q)))))
